@@ -39,13 +39,19 @@ git clone https://github.com/sssysy/astrbot_plugin_parser_plus.git
 pip install -r astrbot_plugin_parser_plus/requirements.txt
 ```
 
-本地卡片渲染使用 Playwright，还需要安装 Chromium 运行时：
+本地卡片渲染使用 Playwright，还需要安装 Chromium 运行时。Linux / Docker 环境下需要同时安装系统依赖：
 
 ```bash
+python -m playwright install --with-deps chromium
+```
+
+Windows 环境无需系统依赖，可使用：
+
+```powershell
 python -m playwright install chromium
 ```
 
-插件启动后，也可以由管理员在会话中发送 `安装playwright`，由插件执行相同安装操作。
+插件启动后，也可以由管理员在会话中发送 `安装playwright`。插件会在 Linux 下自动使用 `--with-deps` 安装运行库。
 
 如果不使用本地渲染，可在插件配置中关闭“使用本地 Playwright 渲染卡片”，改由 AstrBot 配置的远程 T2I 服务渲染卡片。
 
@@ -81,7 +87,7 @@ python -m playwright install chromium
 
 | 命令 | 说明 |
 | :--- | :--- |
-| `安装playwright` | 为本地卡片渲染下载并安装 Playwright Chromium 运行时 |
+| `安装playwright` | 下载 Playwright Chromium；Linux 下同时安装所需的系统运行库 |
 
 > 安装过程可能需要数分钟。安装成功后无需重启插件，可直接重试链接解析。
 

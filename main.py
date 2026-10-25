@@ -266,7 +266,7 @@ class ParserPlugin(Star):
 
         async with self._playwright_install_lock:
             yield event.plain_result(
-                "正在安装 Playwright Chromium，下载时间可能较长，请稍候..."
+                "正在安装 Playwright Chromium 及所需运行环境，下载时间可能较长，请稍候..."
             )
             result = await install_playwright_chromium()
 

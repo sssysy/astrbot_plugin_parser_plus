@@ -284,6 +284,7 @@ class Renderer:
             self.cfg.cache_dir,
             self.cfg.data_dir,
             self.cfg.plugin_dir,
+            self.RESOURCE_DIR,
         )
         for root in roots:
             try:

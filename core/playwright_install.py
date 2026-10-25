@@ -23,8 +23,11 @@ class PlaywrightInstallResult:
 async def install_playwright_chromium(
     timeout: float = INSTALL_TIMEOUT_SECONDS,
 ) -> PlaywrightInstallResult:
-    """使用当前 Python 环境安装 Playwright Chromium。"""
-    command = [sys.executable, "-m", "playwright", "install", "chromium"]
+    """使用当前 Python 环境安装 Playwright Chromium 及其系统依赖。"""
+    command = [sys.executable, "-m", "playwright", "install"]
+    if sys.platform.startswith("linux"):
+        command.append("--with-deps")
+    command.append("chromium")
     try:
         process = await asyncio.create_subprocess_exec(
             *command,

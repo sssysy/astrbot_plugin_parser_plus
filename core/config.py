@@ -222,6 +222,7 @@ class PluginConfig(ConfigNode):
     source_max_minute: int
 
     audio_to_file: bool
+    use_local_renderer: bool
     forward_threshold: int
 
     show_download_fail_tip: bool
@@ -241,10 +242,6 @@ class PluginConfig(ConfigNode):
         super().__init__(config)
         self.context = context
         self.admins_id = self.context.get_config().get("admins_id", [])
-
-        # ---------- 内置配置 ----------
-        self.emoji_cdn = "https://cdn.jsdelivr.net/npm/emoji-datasource-facebook@14.0.0/img/facebook/64/"
-        self.emoji_style = "FACEBOOK"  # 可选：APPLE、FACEBOOK、GOOGLE、TWITTER
 
         # ---------- 派生字段 ----------
         self.proxy = self.proxy or None

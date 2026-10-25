@@ -22,9 +22,11 @@ from ..data import (
     GraphicsContent,
     ImageContent,
     MediaContent,
+    Metric,
     Platform,
     TextContent,
     VideoContent,
+    VideoMeta,
 )
 from ..download import Downloader
 from ..exception import ParseException, RedirectException
@@ -233,6 +235,7 @@ class BaseParser:
         timestamp: int | None = None,
         url: str | None = None,
         extra: dict[str, Any] | None = None,
+        metrics: Iterable[Metric] | None = None,
         repost: Description | None = None,
     ) -> None:
         """发送通用描述卡片。"""
@@ -248,6 +251,7 @@ class BaseParser:
             url=url,
             contents=card_contents,
             extra=extra or {},
+            metrics=list(metrics or ()),
             repost=repost,
         )
         await self._emit_description(description)
@@ -259,10 +263,13 @@ class BaseParser:
         *,
         cover: str | Path | Task[Path] | None = None,
         duration: float = 0.0,
+        quality: str | None = None,
+        resolution: str | None = None,
         text: str | None = None,
         timestamp: int | None = None,
         url: str | None = None,
         extra: dict[str, Any] | None = None,
+        metrics: Iterable[Metric] | None = None,
     ) -> None:
         """发送视频描述卡片。"""
         if _DESCRIPTION_SINK.get() is None:
@@ -279,8 +286,14 @@ class BaseParser:
             text=text,
             timestamp=timestamp,
             url=url,
-            contents=[VideoContent(Path("."), cover_task, duration)],
             extra=extra or {},
+            metrics=list(metrics or ()),
+            video=VideoMeta(
+                cover=cover_task,
+                duration=duration,
+                quality=quality,
+                resolution=resolution,
+            ),
         )
         await self._emit_description(description)
 
@@ -341,6 +354,9 @@ class BaseParser:
         name: str,
         avatar_url: str | None = None,
         description: str | None = None,
+        *,
+        uid: str | None = None,
+        metrics: Iterable[Metric] | None = None,
         headers: dict[str, str] | None = None,
     ):
         """创建作者对象"""
@@ -350,7 +366,13 @@ class BaseParser:
             avatar_task = self.downloader.download_img(
                 avatar_url, headers=headers or self.headers, proxy=self.proxy
             )
-        return Author(name=name, avatar=avatar_task, description=description)
+        return Author(
+            name=name,
+            avatar=avatar_task,
+            description=description,
+            uid=uid,
+            metrics=list(metrics or ()),
+        )
 
     def create_video_content(
         self,

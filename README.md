@@ -39,6 +39,14 @@ git clone https://github.com/sssysy/astrbot_plugin_parser_plus.git
 pip install -r astrbot_plugin_parser_plus/requirements.txt
 ```
 
+本地卡片渲染使用 Playwright，还需要安装 Chromium 运行时：
+
+```bash
+python -m playwright install chromium
+```
+
+如果不使用本地渲染，可在插件配置中关闭“使用本地 Playwright 渲染卡片”，改由 AstrBot 配置的远程 T2I 服务渲染卡片。
+
 安装完成后重启 AstrBot。若插件市场已经自动安装依赖，无需重复执行 `pip install`。
 
 ## 丨支持平台

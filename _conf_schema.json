@@ -68,6 +68,12 @@
         "type": "bool",
         "default": true
     },
+    "use_local_renderer": {
+        "description": "使用本地 Playwright 渲染卡片",
+        "hint": "开启后本地启动 Chromium 渲染；关闭后使用 AstrBot 框架配置的远程 T2I 渲染接口。远程模式会将卡片内容发送到对应服务。",
+        "type": "bool",
+        "default": true
+    },
     "forward_threshold": {
         "description": "转发阈值",
         "hint": "硬性要求：解析生成的消息条数达到此阈值时，将消息合并转发",

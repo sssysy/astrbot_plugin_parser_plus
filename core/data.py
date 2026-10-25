@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 PathLoader = Callable[[], Awaitable[Path]]
 
@@ -145,6 +145,50 @@ class Platform:
     """ 平台显示名称 """
 
 
+@dataclass(frozen=True, slots=True)
+class IconAsset:
+    """可渲染图标资源。"""
+
+    kind: Literal["path", "url", "data", "svg"]
+    value: str | Path
+    alt: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Metric:
+    """通用指标项，值由调用方预先格式化。"""
+
+    icon: IconAsset | None
+    label: str | None
+    value: str
+
+
+@dataclass(repr=False, slots=True)
+class VideoMeta:
+    """视频描述卡片元信息，不包含最终视频下载任务。"""
+
+    cover: Path | Task[Path] | None = None
+    duration: float = 0.0
+    quality: str | None = None
+    resolution: str | None = None
+
+    async def get_cover_path(self) -> Path | None:
+        if self.cover is None:
+            return None
+        if isinstance(self.cover, Path):
+            return self.cover
+        self.cover = await self.cover
+        return self.cover
+
+    @property
+    def display_duration(self) -> str | None:
+        if self.duration <= 0:
+            return None
+        minutes = int(self.duration) // 60
+        seconds = int(self.duration) % 60
+        return f"{minutes:02d}:{seconds:02d}"
+
+
 @dataclass(repr=False, slots=True)
 class Author:
     """作者信息"""
@@ -155,6 +199,10 @@ class Author:
     """作者头像 URL 或本地路径"""
     description: str | None = None
     """作者个性签名等"""
+    uid: str | None = None
+    """平台作者 ID"""
+    metrics: list[Metric] = field(default_factory=list)
+    """作者指标，例如获赞、关注、粉丝"""
 
     async def get_avatar_path(self) -> Path | None:
         if self.avatar is None:
@@ -185,6 +233,8 @@ class Description:
     url: str | None = None
     contents: list[MediaContent] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
+    metrics: list[Metric] = field(default_factory=list)
+    video: VideoMeta | None = None
     repost: "Description | None" = None
 
     @property
@@ -239,6 +289,8 @@ class Description:
 
     @property
     async def cover_path(self) -> Path | None:
+        if self.video is not None:
+            return await self.video.get_cover_path()
         for cont in self.contents:
             if isinstance(cont, VideoContent):
                 return await cont.get_cover_path()

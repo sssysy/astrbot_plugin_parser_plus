@@ -21,7 +21,7 @@
 - 不使用 `GreedyStr`。
 - 解析器通过 `BaseParser` 子类和 `@handle(...)` 注册，不在 `main.py` 手写平台分支。
 - 所有平台描述统一转换为 `core/data.py` 中的 `Description`，最终结果统一为有序媒体内容列表，不得让发送层理解平台私有结构。
-- 信息卡片由 `core/render.py` 使用 Pillow + apilmoji 绘制，不使用 HTML 模板、Playwright、`html_render()` 或本地静态文件服务器。
+- 信息卡片统一由 `core/render/` 使用 Jinja2 HTML 模板 + Playwright 渲染，默认本地 Chromium，也可切换为 AstrBot 远程 T2I；其他模块不得自行拼接 HTML、启动浏览器或直接调用 `html_render()`。
 - 下载能力统一由 `core/download.py` 提供；新增解析器不得自行实现落盘下载链路。
 - `core/sender.py` 只负责“怎么发”，不负责“怎么解析”。
 - `main.py` 中可以为了 AstrBot 事件与消息组件使用 `astrbot.core.*` 类型；新增解析器代码不得继续扩散框架内部依赖，优先复用 `BaseParser` 和 `core/data.py`。
@@ -41,7 +41,9 @@ astrbot_plugin_parser/
 │   ├── config.py               # ConfigNode、ParserConfig、PluginConfig
 │   ├── data.py                 # Description、MediaContent 等模型
 │   ├── download.py             # 共享 aiohttp 下载、yt-dlp、媒体缓存
-│   ├── render.py               # Pillow 卡片渲染
+│   ├── render/                 # Jinja2 + Playwright/T2I 卡片渲染
+│   │   ├── __init__.py         # Renderer、浏览器生命周期与远程渲染
+│   │   └── default/            # HTML 卡片模板与内联样式
 │   ├── sender.py               # 发送计划、消息段构建与发送
 │   ├── cookie.py               # CookieJar、Netscape/Header Cookie 解析
 │   ├── arbiter.py              # QQ 群多 Bot 贴表情仲裁
@@ -50,7 +52,7 @@ astrbot_plugin_parser/
 │   ├── utils.py                # URL、文件、ffmpeg 等通用工具
 │   ├── exception.py            # 解析和下载异常
 │   ├── constants.py            # 公共请求头
-│   ├── resources/              # 字体、按钮、平台 logo
+│   ├── resources/              # 字体、按钮、平台 logo 等静态资源
 │   └── parsers/
 │       ├── __init__.py         # parser 模块导入与注册入口
 │       ├── base.py             # BaseParser、handle、结果与下载辅助方法
@@ -180,11 +182,11 @@ class FooParser(BaseParser):
 - `MediaContent` 支持 `Path`、异步任务或延迟 loader；最终媒体在 `parse_result()` 阶段才应开始下载。
 - 图片、视频、音频、文件、动态图和图文分别使用对应 `*Content` 类型，不要用字符串冒充媒体。
 - 列表顺序就是最终发送顺序，发送层不得重新按媒体类型排序。
-- 修改公共模型时同时检查 `core/render.py`、`core/sender.py`、`core/data.py` 中的序列化/遍历逻辑和相关测试。
+- 修改公共模型时同时检查 `core/render/`、`core/sender.py`、`core/data.py` 中的序列化/遍历逻辑和相关测试。
 
 ## 8. 下载、异步与资源释放
 
-- 网络 I/O 使用 `aiohttp`；必须阻塞的 `curl_cffi`、`yt-dlp`、Pillow 保存等调用放入 `asyncio.to_thread()`。
+- 网络 I/O 使用 `aiohttp`；Playwright 与远程 T2I 使用异步 API；必须阻塞的 `curl_cffi`、`yt-dlp`、文件读写和图片处理等调用放入 `asyncio.to_thread()`。
 - 文件写入使用 `aiofiles`；简单删除或路径操作可用 `to_thread`。
 - 禁止在事件循环中调用 `requests`、`time.sleep()` 或长时间同步阻塞代码。
 - 下载必须设置超时、有限重试和大小限制，失败不得无限重试。
@@ -196,10 +198,14 @@ class FooParser(BaseParser):
 
 渲染：
 
-- 只通过 `Renderer` 生成卡片；新增布局或样式放 `core/render.py` 或对应资源目录。
-- 不使用 Playwright、HTML 页面、`html_render()`、独立 CSS/JS 或 `file://` 资源。
+- 只通过 `Renderer` 生成卡片；新增布局或样式放 `core/render/default/*.html`，平台 logo 等静态资源放 `core/resources/`。
+- 默认使用本地 Playwright 启动 headless Chromium，按 `main.card` 元素边界截图；浏览器应懒加载并复用，不得为每张卡片重复启动。
+- 本地渲染所需图片和平台资源必须通过受限的 data URI 注入；不得启动本地静态文件服务器、使用 `file://` 页面或暴露任意本地路径。
+- 模板不得引用外部 CDN 脚本、字体或其他网络资源；新增资源必须来自插件目录、插件数据目录或缓存目录。
+- 非本地模式只能通过 `Renderer` 调用 AstrBot 的远程 T2I（`Star.html_render()`）；远程模式会发送卡片 HTML，配置说明必须明确该隐私边界。
+- 远程 T2I 返回的文件必须复制到 `cfg.cache_dir`，不得把远程临时路径传给发送层。
 - `Renderer.render_card()` 失败返回 `None`，日志中不得输出 base64、Cookie、Token 或完整敏感响应。
-- 卡片文件写入 `cfg.cache_dir`，由缓存清理器负责回收。
+- 卡片文件写入 `cfg.cache_dir`，由缓存清理器负责回收；Playwright 浏览器与驱动必须在 `Renderer.close()` 和 `ParserPlugin.terminate()` 中释放。
 
 发送：
 
@@ -250,7 +256,7 @@ class FooParser(BaseParser):
 - Cookie 测试使用 `tmp_path`，不得读写真实插件数据目录。
 - 修改 parser 注册或配置时，补一个能证明 parser 能被导入/匹配的测试。
 - 修改 `extract_json_url()` 时，至少覆盖明确的 JSON 字段和兜底扫描。
-- 修改下载、渲染或发送边界时，检查失败降级和资源释放。
+- 修改下载、渲染或发送边界时，检查模板转义、资源路径限制、本地/远程渲染失败降级和 Playwright 资源释放。
 
 ## 14. 自检清单
 
@@ -265,6 +271,8 @@ class FooParser(BaseParser):
 - [ ] 卡片发送完成前没有启动最终媒体下载。
 - [ ] 不存在文字回退、`SendGroup` 或媒体类型重排。
 - [ ] sender 不执行解析或二次请求。
+- [ ] 卡片只经 `core/render/Renderer` 生成，本地 Playwright 与远程 T2I 不会绕过模板和资源边界。
+- [ ] Playwright 浏览器与驱动已释放，远程渲染临时文件已复制到缓存并可由清理器回收。
 - [ ] 长生命周期会话、任务和调度器均有释放路径。
 - [ ] 错误信息不暴露 Cookie、Token、堆栈和原始响应。
 - [ ] `python -m pytest -q` 通过。

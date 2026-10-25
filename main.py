@@ -1,6 +1,5 @@
 # main.py
 
-import asyncio
 import re
 
 from astrbot.api import logger
@@ -29,10 +28,14 @@ class ParserPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.cfg = PluginConfig(config, context=context)
-        # 渲染器
-        self.renderer = Renderer(self.cfg)
         # 下载器
         self.downloader = Downloader(self.cfg)
+        # 渲染器：本地 Playwright 或 AstrBot 远程 T2I
+        self.renderer = Renderer(
+            self.cfg,
+            self.downloader,
+            remote_renderer=self.html_render,
+        )
         # 防抖器
         self.debouncer = Debouncer(self.cfg)
         # 仲裁器
@@ -48,13 +51,15 @@ class ParserPlugin(Star):
 
     async def initialize(self):
         """加载、重载插件时触发"""
-        # 加载渲染器资源
-        await asyncio.to_thread(Renderer.load_resources)
+        # 校验渲染模板；Playwright 浏览器保持懒加载
+        await self.renderer.initialize()
         # 注册解析器
         self._register_parser()
 
     async def terminate(self):
         """插件卸载时触发"""
+        # 关闭渲染浏览器
+        await self.renderer.close()
         # 关下载器里的会话
         await self.downloader.close()
         # 关所有解析器里的会话 (去重后的实例)

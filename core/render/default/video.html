@@ -1,0 +1,29 @@
+{% extends "common.html" %}
+
+{% block header %}
+  <header class="video-header">
+    {% if card.title %}<h1 class="title">{{ card.title }}</h1>{% endif %}
+    <div class="video-meta-row">
+      <div class="video-facts">
+        {% if card.video.duration %}
+          <div class="duration-line"><span class="fact-label">时长</span><span>{{ card.video.duration }}</span></div>
+        {% endif %}
+        {% if card.video.quality %}<div class="quality-line">{{ card.video.quality }}</div>{% endif %}
+        {% if card.video.resolution %}<div class="resolution-line">{{ card.video.resolution }}</div>{% endif %}
+      </div>
+      <div class="platform-logo-wrap">
+        {% if card.platform.logo %}
+          <img class="platform-logo" src="{{ card.platform.logo }}" alt="{{ card.platform.display_name }}">
+        {% else %}
+          <span>{{ card.platform.display_name }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+{% endblock %}
+
+{% block media %}
+  {% if card.video.cover %}
+    <img class="video-cover" src="{{ card.video.cover }}" alt="{{ card.title or card.platform.display_name }}">
+  {% endif %}
+{% endblock %}

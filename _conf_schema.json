@@ -68,12 +68,6 @@
         "type": "bool",
         "default": true
     },
-    "single_heavy_render_card": {
-        "description": "单条重媒体仍渲染卡片",
-        "hint": "重媒体是指：视频、音频、文件。重媒体下载和发送较为耗时，有需者可以打开此开关让插件先渲染一个信息卡片发出来，追求简洁者请不要开启",
-        "type": "bool",
-        "default": false
-    },
     "forward_threshold": {
         "description": "转发阈值",
         "hint": "硬性要求：解析生成的消息条数达到此阈值时，将消息合并转发",
@@ -86,8 +80,8 @@
         "default": 2
     },
     "show_download_fail_tip": {
-        "description": "提示下载失败项",
-        "hint": "关闭后将不再发送与下载失败相关的提示（如“此项媒体下载失败”、“超过文件大小限制”等）",
+        "description": "提示媒体处理错误",
+        "hint": "开启后逐项发送简要错误原因；详细异常信息仅写入控制台日志。关闭后用户侧不再收到错误提示。",
         "type": "bool",
         "default": true
     },

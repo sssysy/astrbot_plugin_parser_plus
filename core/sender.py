@@ -1,5 +1,7 @@
+import re
 from itertools import chain
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from astrbot.api import logger
 from astrbot.core.message.components import (
@@ -28,8 +30,8 @@ from .data import (
 )
 from .exception import (
     DownloadException,
-    DownloadLimitException,
     DurationLimitException,
+    RedirectException,
     SizeLimitException,
     ZeroSizeException,
 )
@@ -104,11 +106,10 @@ class MessageSender:
                 case _:
                     light.append(cont)
 
-        # 基础卡片渲染条件：单条重媒体配置或显式指定
-        is_single_heavy = len(heavy) == 1 and not light
-        render_card = is_single_heavy and self.cfg.single_heavy_render_card
-        if render_card_override is not None:
-            render_card = render_card_override
+        # 是否渲染卡片只由调用方显式指定，不再因单条重媒体自动开启。
+        render_card = (
+            render_card_override if render_card_override is not None else False
+        )
 
         # 实际媒体段数量
         media_count = len(light) + len(heavy)
@@ -141,7 +142,7 @@ class MessageSender:
         发送预览卡片（独立消息）
 
         场景：
-        - 只有一个重媒体
+        - 调用方显式要求渲染卡片
         - 未触发合并转发
         - 卡片作为“预览”，不与正文混合
         """
@@ -179,11 +180,8 @@ class MessageSender:
 
             try:
                 path: Path = await cont.get_path()
-            except (DownloadLimitException, ZeroSizeException):
-                continue
-            except DownloadException:
-                if self.cfg.show_download_fail_tip:
-                    segs.append(Plain("此项媒体下载失败"))
+            except DownloadException as exc:
+                self._append_content_failure(result, cont, exc, segs)
                 continue
 
             match cont:
@@ -201,18 +199,8 @@ class MessageSender:
         for cont in plan["heavy"]:
             try:
                 path: Path = await cont.get_path()
-            except (SizeLimitException, DurationLimitException) as exc:
-                if self.cfg.show_download_fail_tip:
-                    message = (
-                        "此项媒体超过时长限制"
-                        if isinstance(exc, DurationLimitException)
-                        else "此项媒体超过大小限制"
-                    )
-                    segs.append(Plain(message))
-                continue
-            except DownloadException:
-                if self.cfg.show_download_fail_tip:
-                    segs.append(Plain("此项媒体下载失败"))
+            except DownloadException as exc:
+                self._append_content_failure(result, cont, exc, segs)
                 continue
 
             match cont:
@@ -229,6 +217,70 @@ class MessageSender:
                     segs.append(File(name=path.name, file=self._to_file_uri(path)))
 
         return segs
+
+    @staticmethod
+    def _content_label(content: object) -> str:
+        match content:
+            case ImageContent() | GraphicsContent():
+                return "图片"
+            case VideoContent():
+                return "视频"
+            case DynamicContent():
+                return "动图"
+            case AudioContent():
+                return "音频"
+            case FileContent():
+                return "文件"
+            case _:
+                return "媒体"
+
+    def _brief_content_error(self, exc: DownloadException) -> str:
+        if isinstance(exc, SizeLimitException):
+            return f"大小超过限制（{self.cfg.source_max_size} MB）"
+        if isinstance(exc, DurationLimitException):
+            return f"时长超过限制（{self.cfg.source_max_minute} 分钟）"
+        if isinstance(exc, ZeroSizeException):
+            return "资源为空"
+        if isinstance(exc, RedirectException):
+            return "链接跳转异常"
+        return "网络或服务异常"
+
+    @staticmethod
+    def _safe_exception_text(exc: Exception) -> str:
+        text = str(exc).strip() or "<empty>"
+
+        def redact_url(match: re.Match[str]) -> str:
+            raw = match.group(0)
+            try:
+                parsed = urlsplit(raw)
+                if not parsed.hostname:
+                    return "<url>"
+                port = f":{parsed.port}" if parsed.port else ""
+                return f"{parsed.scheme}://{parsed.hostname}{port}/<redacted>"
+            except ValueError:
+                return "<url>"
+
+        return re.sub(r"https?://[^\s]+", redact_url, text)
+
+    def _append_content_failure(
+        self,
+        result: ParseResult,
+        content: object,
+        exc: DownloadException,
+        segs: list[BaseMessageComponent],
+    ) -> None:
+        label = self._content_label(content)
+        if self.cfg.show_download_fail_tip:
+            reason = self._brief_content_error(exc)
+            segs.append(Plain(f"{label}下载失败：{reason}"))
+
+        logger.error(
+            "[发送] 媒体处理失败 | "
+            f"platform={result.platform.name} | "
+            f"content={type(content).__name__} | "
+            f"error_type={type(exc).__name__} | "
+            f"error={self._safe_exception_text(exc)}"
+        )
 
     def _merge_segments_if_needed(
         self,

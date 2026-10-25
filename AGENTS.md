@@ -200,7 +200,7 @@ class FooParser(BaseParser):
 发送：
 
 - `core/sender.py` 不解析站点、不重新请求站点、不修改 parser 配置。
-- 发送策略由 `SendGroup` 和当前配置决定：预览卡片、单条重媒体卡片、转发阈值、合并转发。
+- 发送策略由 `SendGroup` 和当前配置决定：预览卡片、转发阈值、合并转发。
 - 统一使用 `await event.send(event.chain_result(...))`。
 - 不调用 `event.stop_event()`，不修改其他插件的事件状态。
 - 发送失败要记录必要的消息段元信息，但不能记录大段二进制或敏感内容。

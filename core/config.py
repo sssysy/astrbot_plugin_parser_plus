@@ -222,7 +222,6 @@ class PluginConfig(ConfigNode):
     source_max_minute: int
 
     audio_to_file: bool
-    single_heavy_render_card: bool
     forward_threshold: int
 
     show_download_fail_tip: bool

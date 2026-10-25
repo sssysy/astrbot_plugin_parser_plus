@@ -84,12 +84,13 @@ class KuaiShouParser(BaseParser):
             photo.name, photo.head_url, headers=self.ios_headers
         )
 
-        return self.result(
-            title=photo.caption,
-            author=author,
-            contents=contents,
+        await self.send_desc_common(
+            photo.caption,
+            author,
+            contents,
             timestamp=photo.timestamp // 1000,
         )
+        return self.parse_result(contents)
 
 
 class CdnUrl(Struct):

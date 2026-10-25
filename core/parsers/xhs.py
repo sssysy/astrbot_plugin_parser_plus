@@ -131,12 +131,21 @@ class XHSParser(BaseParser):
         # 构建作者
         author = self.create_author(note_detail.nickname, note_detail.avatar_url)
 
-        return self.result(
-            title=note_detail.title,
-            text=note_detail.desc,
-            author=author,
-            contents=contents,
-        )
+        if video_url:
+            await self.send_desc_video(
+                note_detail.title,
+                author,
+                cover=cover_url,
+                text=note_detail.desc,
+            )
+        else:
+            await self.send_desc_common(
+                note_detail.title,
+                author,
+                contents,
+                text=note_detail.desc,
+            )
+        return self.parse_result(contents)
 
     async def parse_discovery(self, url: str):
         async with self.session.get(
@@ -205,13 +214,24 @@ class XHSParser(BaseParser):
         elif img_urls := note_data.image_urls:
             contents.extend(self.create_image_contents(img_urls))
 
-        return self.result(
-            title=note_data.title,
-            author=self.create_author(note_data.user.nickName, note_data.user.avatar),
-            contents=contents,
-            text=note_data.desc,
-            timestamp=note_data.time // 1000,
-        )
+        author = self.create_author(note_data.user.nickName, note_data.user.avatar)
+        if video_url:
+            await self.send_desc_video(
+                note_data.title,
+                author,
+                cover=img_urls[0] if img_urls else None,
+                text=note_data.desc,
+                timestamp=note_data.time // 1000,
+            )
+        else:
+            await self.send_desc_common(
+                note_data.title,
+                author,
+                contents,
+                text=note_data.desc,
+                timestamp=note_data.time // 1000,
+            )
+        return self.parse_result(contents)
 
     def _extract_initial_state_json(self, html: str) -> dict[str, Any]:
         pattern = r"window\.__INITIAL_STATE__=(.*?)</script>"

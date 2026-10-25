@@ -5,13 +5,14 @@ import json
 import random
 import re
 import time
+from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import urlparse
 
 from curl_cffi import requests as curl_requests
 
 from ..config import PluginConfig
-from ..data import MediaContent, Platform, SendGroup, TextContent, VideoContent
+from ..data import MediaContent, Platform, TextContent
 from ..download import Downloader
 from ..exception import ParseException
 from .base import BaseParser, handle
@@ -214,29 +215,18 @@ class XiaoheiheParser(BaseParser):
                     if kind == "text":
                         contents.append(TextContent(value))
 
-        send_groups: list[SendGroup] = []
-        primary_contents = [
-            cont for cont in contents if not isinstance(cont, VideoContent)
-        ]
-        video_contents = [cont for cont in contents if isinstance(cont, VideoContent)]
-        if primary_contents:
-            send_groups.append(SendGroup(contents=primary_contents))
-        for content in video_contents:
-            send_groups.append(SendGroup(contents=[content], force_merge=False))
-
         info_parts: list[str] = []
         if image_urls:
             info_parts.append(f"正文图片 {len(image_urls)} 张")
         if video_content is not None:
             info_parts.append("正文视频 1 个")
 
-        return self.result(
-            title=title,
+        await self.send_desc_common(
+            title,
+            author,
+            contents,
             text=None if show_body_text else (body_text or None),
             url=final_url,
-            author=author,
-            contents=contents,
-            send_groups=send_groups,
             extra={
                 "info": "，".join(info_parts) if info_parts else None,
                 "body_image_urls": image_urls,
@@ -245,6 +235,7 @@ class XiaoheiheParser(BaseParser):
                 "video_url": link.get("video_url"),
             },
         )
+        return self.parse_result(contents)
 
     async def _parse_game_by_appid(self, appid: str, game_type: str):
         appid = appid.strip()
@@ -276,28 +267,18 @@ class XiaoheiheParser(BaseParser):
         if text_content is not None:
             contents.append(text_content)
 
-        send_groups: list[SendGroup] = []
-        primary_contents = [
-            cont for cont in contents if not isinstance(cont, VideoContent)
-        ]
-        video_contents = [cont for cont in contents if isinstance(cont, VideoContent)]
-        if primary_contents:
-            send_groups.append(SendGroup(contents=primary_contents))
-        for content in video_contents:
-            send_groups.append(SendGroup(contents=[content], force_merge=False))
-
         info_parts: list[str] = []
         if image_urls:
             info_parts.append(f"游戏图片 {len(image_urls)} 张")
         if video_entries:
             info_parts.append(f"游戏视频 {len(video_entries)} 个")
 
-        return self.result(
-            title=title,
+        await self.send_desc_common(
+            title,
+            None,
+            contents,
             text=None if show_body_text else (desc or None),
             url=web_url,
-            contents=contents,
-            send_groups=send_groups,
             extra={
                 "info": "，".join(info_parts) if info_parts else None,
                 "body_image_urls": image_urls,
@@ -309,6 +290,7 @@ class XiaoheiheParser(BaseParser):
                 "video_urls": [item[0] for item in video_entries],
             },
         )
+        return self.parse_result(contents)
 
     async def _build_request_context(self) -> dict[str, str]:
         token = self._extract_xhh_tokenid_from_cookies()
@@ -869,17 +851,18 @@ class XiaoheiheParser(BaseParser):
         parsed = urlparse(video_url)
         path = (parsed.path or "").lower()
         if path.endswith(".m3u8"):
-            task = self.downloader.ytdlp_download_video_relaxed(
-                video_url, headers=self.headers, proxy=self.proxy
-            )
-            return self.create_video_content_by_task(
-                task, cover_url, headers=self.headers
+
+            async def load_video() -> Path:
+                return await self.downloader.ytdlp_download_video_relaxed(
+                    video_url, headers=self.headers, proxy=self.proxy
+                )
+
+            return self.create_video_content_by_loader(
+                load_video, cover_url, headers=self.headers
             )
         return self.create_video_content(video_url, cover_url, headers=self.headers)
 
-    def _parse_body_segments(
-        self, link: dict[str, Any]
-    ) -> list[tuple[str, str]]:
+    def _parse_body_segments(self, link: dict[str, Any]) -> list[tuple[str, str]]:
         """解析正文，返回保持原文顺序的图文段列表。
 
         每项为 ("text", 文本) 或 ("image", 图片URL)；
@@ -974,9 +957,10 @@ class XiaoheiheParser(BaseParser):
         # 接口给的 url 带七牛 imageMogr2 处理：重压缩并限制在 850x1450 内，大图会糊。
         # 开启原图模式时去掉查询串，获取平台留存的原始文件。
         # 同上：None（旧配置未配置该字段）按默认开启处理，仅显式 False 视为关闭。
-        if "imageMogr2" in url and getattr(
-            self.mycfg, "use_original_image", None
-        ) is not False:
+        if (
+            "imageMogr2" in url
+            and getattr(self.mycfg, "use_original_image", None) is not False
+        ):
             url = url.split("?", 1)[0]
         return url
 

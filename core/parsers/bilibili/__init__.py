@@ -1,4 +1,3 @@
-import asyncio
 from re import Match
 from typing import ClassVar
 from urllib.parse import urlparse
@@ -11,7 +10,7 @@ from msgspec import convert
 from astrbot.api import logger
 
 from ...config import PluginConfig
-from ...data import ImageContent, MediaContent, Platform, SendGroup
+from ...data import MediaContent, Platform
 from ...exception import DownloadException, DurationLimitException
 from ..base import (
     BaseParser,
@@ -109,12 +108,14 @@ class BilibiliParser(BaseParser):
         _, a_url = await self.extract_download_urls(bvid=bvid, page_index=page - 1)
         if not a_url:
             raise ParseException("未找到音频链接")
-        audio = self.create_audio_content(a_url)
-        return self.result(
-            title=f"BiliBili_audio_{bvid}",
-            contents=[audio],
+        await self.send_desc_common(
+            f"BiliBili_audio_{bvid}",
+            None,
+            [],
             url=a_url,
         )
+        audio = self.create_audio_content(a_url)
+        return self.parse_result([audio])
 
     @handle("av", r"^av(?P<avid>\d{6,})(?:\s)?(?P<page_num>\d{1,3})?$")
     @handle(
@@ -226,22 +227,21 @@ class BilibiliParser(BaseParser):
                     proxy=self.proxy,
                 )
 
-        video_task = asyncio.create_task(download_video())
-        video_content = self.create_video_content(
-            video_task,
-            page_info.cover,
-            page_info.duration,
-        )
-
-        return self.result(
-            url=url,
-            title=page_info.title,
-            timestamp=page_info.timestamp,
+        await self.send_desc_video(
+            page_info.title,
+            author,
+            cover=page_info.cover,
+            duration=page_info.duration,
             text=text,
-            author=author,
-            contents=[video_content],
+            timestamp=page_info.timestamp,
+            url=url,
             extra={"info": ai_summary},
         )
+        video_content = self.create_video_content_by_loader(
+            download_video,
+            duration=page_info.duration,
+        )
+        return self.parse_result([video_content])
 
     async def parse_dynamic(self, dynamic_id: int):
         """解析动态信息
@@ -258,21 +258,15 @@ class BilibiliParser(BaseParser):
         dynamic_info = convert(await dynamic_.get_info(), DynamicData).item
         author = self.create_author(dynamic_info.name, dynamic_info.avatar)
 
-        # 下载图片
-        contents: list[MediaContent] = []
-        for image_url in dynamic_info.image_urls:
-            img_task = self.downloader.download_img(
-                image_url, headers=self.headers, proxy=self.proxy
-            )
-            contents.append(ImageContent(img_task))
-
-        return self.result(
-            title=dynamic_info.title,
+        contents = self.create_image_contents(dynamic_info.image_urls)
+        await self.send_desc_common(
+            dynamic_info.title,
+            author,
+            contents,
             text=dynamic_info.text,
             timestamp=dynamic_info.timestamp,
-            author=author,
-            contents=contents,
         )
+        return self.parse_result(contents)
 
     async def parse_opus(self, opus_id: int):
         """解析图文动态信息
@@ -298,7 +292,7 @@ class BilibiliParser(BaseParser):
         Args:
             opus_id (int): 图文动态 id
         Returns:
-            ParseResult: 解析结果
+            内容列表: 最终发送内容
         """
         from .opus import ImageNode, OpusItem, TextNode
 
@@ -322,20 +316,14 @@ class BilibiliParser(BaseParser):
                 current_text = ""
             elif isinstance(node, TextNode):
                 current_text += node.text
-        return self.result(
-            title=opus_data.title,
-            author=author,
-            timestamp=opus_data.timestamp,
-            contents=contents,
+        await self.send_desc_common(
+            opus_data.title,
+            author,
+            contents,
             text=current_text.strip(),
-            # 图文动态全是轻媒体，默认发送计划不会渲染卡片，
-            # 显式要求先发一张"文字+图片"合一的媒体卡片
-            send_groups=(
-                [SendGroup(contents=contents, render_card=True, force_merge=False)]
-                if contents
-                else []
-            ),
+            timestamp=opus_data.timestamp,
         )
+        return self.parse_result(contents)
 
     async def parse_live(self, room_id: int):
         """解析直播信息
@@ -344,7 +332,7 @@ class BilibiliParser(BaseParser):
             room_id (int): 直播 id
 
         Returns:
-            ParseResult: 解析结果
+            内容列表: 最终发送内容
         """
         from bilibili_api.live import LiveRoom
 
@@ -354,31 +342,18 @@ class BilibiliParser(BaseParser):
         info_dict = await room.get_room_info()
 
         room_data = convert(info_dict, RoomData)
-        contents: list[MediaContent] = []
-        # 下载封面
-        if cover := room_data.cover:
-            cover_task = self.downloader.download_img(
-                cover, headers=self.headers, proxy=self.proxy
-            )
-            contents.append(ImageContent(cover_task))
-
-        # 下载关键帧
-        if keyframe := room_data.keyframe:
-            keyframe_task = self.downloader.download_img(
-                keyframe, headers=self.headers, proxy=self.proxy
-            )
-            contents.append(ImageContent(keyframe_task))
-
+        image_urls = [url for url in (room_data.cover, room_data.keyframe) if url]
+        contents = self.create_image_contents(image_urls)
         author = self.create_author(room_data.name, room_data.avatar)
-
         url = f"https://www.bilibili.com/blackboard/live/live-activity-player.html?enterTheRoom=0&cid={room_id}"
-        return self.result(
-            url=url,
-            title=room_data.title,
+        await self.send_desc_common(
+            room_data.title,
+            author,
+            contents,
             text=room_data.detail,
-            contents=contents,
-            author=author,
+            url=url,
         )
+        return self.parse_result(contents)
 
     async def parse_favlist(self, fav_id: int):
         """解析收藏夹信息
@@ -401,15 +376,17 @@ class BilibiliParser(BaseParser):
 
         favdata = convert(fav_dict, FavData)
 
-        return self.result(
-            title=favdata.title,
+        author = self.create_author(favdata.info.upper.name, favdata.info.upper.face)
+        contents = [
+            self.create_graphics_content(fav.cover, fav.desc) for fav in favdata.medias
+        ]
+        await self.send_desc_common(
+            favdata.title,
+            author,
+            contents,
             timestamp=favdata.timestamp,
-            author=self.create_author(favdata.info.upper.name, favdata.info.upper.face),
-            contents=[
-                self.create_graphics_content(fav.cover, fav.desc)
-                for fav in favdata.medias
-            ],
         )
+        return self.parse_result(contents)
 
     async def _get_video(
         self, *, bvid: str | None = None, avid: int | None = None
@@ -467,7 +444,6 @@ class BilibiliParser(BaseParser):
             no_dolby_video=True,
             no_hdr=True,
         )
-        dash_data = download_url_data.get("dash") or {}
         if not streams:
             raise DownloadException("未找到可下载的视频流（可能是所选编码无对应流）")
         video_stream = streams[0]

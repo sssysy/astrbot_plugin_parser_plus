@@ -129,7 +129,6 @@ class ParserPlugin(Star):
         if not chain:
             return
 
-        seg1 = chain[0]
         text = event.message_str
 
         # 指定机制：专门@其他bot的消息不解析
@@ -219,17 +218,18 @@ class ParserPlugin(Star):
             logger.warning(f"[链接防抖] 链接 {link} 在防抖时间内，跳过解析")
             return
 
-        # 解析
-        parse_res = await self.parser_map[keyword].parse(keyword, searched)
+        # 解析。parser 在取得描述信息后立即发送卡片，最终媒体保持懒加载。
+        async def send_desc(description):
+            await self.sender.send_desc(event, description)
 
-        # 基于资源ID防抖
-        resource_id = parse_res.get_resource_id()
-        if self.debouncer.hit_resource(umo, resource_id):
-            logger.warning(f"[资源防抖] 资源 {resource_id} 在防抖时间内，跳过发送")
-            return
+        parse_res = await self.parser_map[keyword].parse(
+            keyword,
+            searched,
+            desc_sink=send_desc,
+        )
 
-        # 发送
-        await self.sender.send_parse_result(event, parse_res)
+        # 卡片发送完成后，才开始下载并发送最终解析内容。
+        await self.sender.parse_result(event, parse_res)
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("开启解析")
@@ -257,17 +257,26 @@ class ParserPlugin(Star):
         async for msg in parser.login.check_qr_state():
             yield event.plain_result(msg)
 
-    async def parse_url(self, url: str):
-        """供其他插件调用的公开解析 API：传入 URL 解析并返回 ParseResult 对象"""
-        for kw, pat in self.key_pattern_list:
-            if kw in url and (m := pat.search(url)):
-                return await self.parser_map[kw].parse(kw, m)
+    def _match_parser(self, url: str):
+        for keyword, pattern in self.key_pattern_list:
+            if keyword in url and (matched := pattern.search(url)):
+                return keyword, matched, self.parser_map[keyword]
         raise ValueError(f"未匹配到支持的解析器: {url}")
 
+    async def parse_url(self, url: str):
+        """公开解析 API：返回最终内容的纯列表，不发送消息。"""
+        keyword, matched, parser = self._match_parser(url)
+        return await parser.parse(keyword, matched)
+
     async def parse_and_send(self, event: AstrMessageEvent, url: str) -> bool:
-        """供其他插件调用的公开方法：解析指定 URL 并直接发送至 event 对应会话"""
-        result = await self.parse_url(url)
-        return await self.sender.send_parse_result(event, result)
+        """公开解析 API：先发送描述卡片，再发送最终解析内容。"""
+        keyword, matched, parser = self._match_parser(url)
+
+        async def send_desc(description):
+            await self.sender.send_desc(event, description)
+
+        result = await parser.parse(keyword, matched, desc_sink=send_desc)
+        return await self.sender.parse_result(event, result)
 
     @filter.llm_tool(name="parse_media_url")
     async def llm_parse_media_url(self, event: AstrMessageEvent, url: str) -> str:

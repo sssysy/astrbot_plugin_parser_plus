@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..config import PluginConfig
 from ..cookie import CookieJar
-from ..data import ParseResult, Platform
+from ..data import MediaContent, Platform
 from ..download import Downloader
 from ..exception import ParseException
 from .base import BaseParser, handle
@@ -56,7 +56,7 @@ class TwitterParser(BaseParser):
             r"(?:[A-Za-z0-9_]+/)*status/\d+"
         ),
     )
-    async def _parse(self, searched: re.Match[str]) -> ParseResult:
+    async def _parse(self, searched: re.Match[str]) -> list[MediaContent]:
         # 从匹配对象中获取原始URL
         url = f"https://{searched.group(0)}"
         resp = await self._req_xdown_api(url)
@@ -68,16 +68,16 @@ class TwitterParser(BaseParser):
         if html_content is None:
             raise ParseException("解析失败, 数据为空")
 
-        return self.parse_twitter_html(html_content)
+        return await self.parse_twitter_html(html_content)
 
-    def parse_twitter_html(self, html_content: str) -> ParseResult:
+    async def parse_twitter_html(self, html_content: str):
         """解析 Twitter HTML 内容
 
         Args:
             html_content (str): Twitter HTML 内容
 
         Returns:
-            ParseResult: 解析结果
+            内容列表: 最终发送内容
         """
         soup = BeautifulSoup(html_content, "html.parser")
 
@@ -134,11 +134,12 @@ class TwitterParser(BaseParser):
         if dynamic_urls:
             contents.extend(self.create_dynamic_contents(dynamic_urls))
 
-        return self.result(
-            title=title,
-            author=self.create_author("无用户名"),
-            contents=contents,
+        await self.send_desc_common(
+            title,
+            self.create_author("无用户名"),
+            contents,
         )
+        return self.parse_result(contents)
         # # 4. 提取Twitter ID
         # twitter_id_input = soup.find("input", {"id": "TwitterId"})
         # if (

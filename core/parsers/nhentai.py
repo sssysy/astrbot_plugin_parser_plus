@@ -18,9 +18,7 @@ from ..data import (
     FileContent,
     ImageContent,
     MediaContent,
-    ParseResult,
     Platform,
-    SendGroup,
 )
 from ..download import Downloader
 from ..exception import ParseException
@@ -131,7 +129,6 @@ def build_text(data: dict[str, Any], grouped: dict[str, list[str]]) -> str:
 
 
 class NhentaiParser(BaseParser):
-
     platform: ClassVar[Platform] = Platform(name="nhentai", display_name="nhentai")
 
     def __init__(self, config: PluginConfig, downloader: Downloader):
@@ -142,7 +139,9 @@ class NhentaiParser(BaseParser):
 
     # ---------------- 接口 ----------------
 
-    async def _get_json(self, url: str, *, not_found: str = "nhentai 接口不存在") -> Any:
+    async def _get_json(
+        self, url: str, *, not_found: str = "nhentai 接口不存在"
+    ) -> Any:
         """请求接口并解析 JSON"""
         try:
             async with self.session.get(
@@ -202,7 +201,9 @@ class NhentaiParser(BaseParser):
 
     # ---------------- 内容构建 ----------------
 
-    async def _build_cover(self, data: dict[str, Any], blur: bool) -> list[MediaContent]:
+    async def _build_cover(
+        self, data: dict[str, Any], blur: bool
+    ) -> list[MediaContent]:
         """下载封面，失败不影响正文，blur 时模糊处理"""
         cover = data.get("cover") or data.get("thumbnail") or {}
         path = cover.get("path")
@@ -239,7 +240,7 @@ class NhentaiParser(BaseParser):
     # ---------------- 处理器 ----------------
 
     @handle("nhentai.net/g", r"nhentai\.net/g/(?P<gid>\d+)")
-    async def _parse_gallery(self, searched: Match[str]) -> ParseResult:
+    async def _parse_gallery(self, searched: Match[str]) -> list[MediaContent]:
         gid = searched.group("gid")
         data = await self._get_gallery(gid)
         url = f"{NH_BASE}/g/{gid}/"
@@ -255,57 +256,52 @@ class NhentaiParser(BaseParser):
 
         nsfw = self.mycfg.nsfw or "blur"
         if nsfw == "ignore":
-            return self.result(
-                title=title,
+            await self.send_desc_common(
+                title,
+                author,
+                [],
                 text=text,
                 url=url,
                 timestamp=timestamp,
                 extra={"info": "🔞 nhentai 内容已按配置忽略"},
             )
+            return self.parse_result([])
 
         cover_contents = await self._build_cover(data, blur=nsfw == "blur")
 
         max_page = self.mycfg.max_page or 0
         if max_page > 0 and num_pages > max_page:
-            return self.result(
-                author=author,
-                title=title,
+            await self.send_desc_common(
+                title,
+                author,
+                cover_contents,
                 text=text,
                 url=url,
-                contents=cover_contents,
-                send_groups=[
-                    SendGroup(contents=[], render_card=True, force_merge=False),
-                    # 仅卡片会被 sender 判定为“未发送”而补发纯文本，故再带一份封面
-                    SendGroup(
-                        contents=cover_contents, render_card=False, force_merge=False
-                    ),
-                ],
                 timestamp=timestamp,
                 extra={
                     "info": f"共 {num_pages} 页，超过最大页数 {max_page}，已跳过下载"
                 },
             )
+            return self.parse_result(cover_contents)
 
         img_urls = await self._page_urls(data)
         if not img_urls:
             raise ParseException("nhentai 未找到页面图片")
 
-        pdf_task = asyncio.create_task(self._build_pdf(gid, img_urls))
-
-        return self.result(
-            author=author,
-            title=title,
+        await self.send_desc_common(
+            title,
+            author,
+            cover_contents,
             text=text,
             url=url,
-            contents=cover_contents,
-            send_groups=[
-                SendGroup(contents=[], render_card=True, force_merge=False),
-                SendGroup(
-                    contents=[FileContent(pdf_task, name=f"nhentai_{gid}.pdf")],
-                    render_card=False,
-                    force_merge=False,
-                ),
-            ],
             timestamp=timestamp,
             extra={"info": f"共 {num_pages} 页"},
         )
+
+        pdf_content = FileContent(name=f"nhentai_{gid}.pdf")
+
+        async def load_pdf() -> Path:
+            return await self._build_pdf(gid, img_urls)
+
+        pdf_content.set_loader(load_pdf)
+        return self.parse_result([pdf_content])

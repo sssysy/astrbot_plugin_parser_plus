@@ -80,7 +80,7 @@ class ShipinhaoParser(BaseParser):
             token, export_id = await self._parse_share_url(share_url)
 
         feed = await self._get_feed_info(export_id, token)
-        return self._build_result(feed, share_url)
+        return await self._build_result(feed, share_url)
 
     async def _resolve_short_url(self, url: str) -> str:
         """解析微信视频号短链 301 重定向，转为 finder-preview 页面长链以提高元宝解析成功率"""
@@ -93,7 +93,9 @@ class ShipinhaoParser(BaseParser):
                     "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.40"
                 )
             }
-            async with self.session.get(url, headers=headers, allow_redirects=False) as resp:
+            async with self.session.get(
+                url, headers=headers, allow_redirects=False
+            ) as resp:
                 loc = resp.headers.get("Location")
                 if loc:
                     return loc
@@ -168,7 +170,7 @@ class ShipinhaoParser(BaseParser):
 
     # ---------------- 组装解析结果 ----------------
 
-    def _build_result(self, feed: dict[str, Any], share_url: str):
+    async def _build_result(self, feed: dict[str, Any], share_url: str):
         data = feed.get("data") or {}
         feed_info: dict[str, Any] = data.get("feedInfo") or {}
         author_info: dict[str, Any] = data.get("authorInfo") or {}
@@ -201,14 +203,16 @@ class ShipinhaoParser(BaseParser):
             headers=self.media_headers,
         )
 
-        return self.result(
-            title=feed_info.get("description") or None,
-            author=author,
-            contents=contents,
+        await self.send_desc_video(
+            feed_info.get("description") or None,
+            author,
+            cover=cover_url,
+            duration=duration,
             timestamp=self._safe_int(feed_info.get("createtime")),
             url=share_url,
             extra={"info": self._build_stats(feed_info)},
         )
+        return self.parse_result(contents)
 
     # ---------------- 辅助 ----------------
 

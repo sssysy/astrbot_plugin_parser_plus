@@ -2,32 +2,32 @@ from __future__ import annotations
 
 import html
 import re
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
 from bs4.element import NavigableString
 
-from ...data import MediaContent, SendGroup, TextContent, VideoContent
+from ...data import MediaContent, TextContent, VideoContent
 from .common import BodyBlock, VideoEntry
 
 
 class ZhihuContentMixin:
-    def _build_contents_and_groups(
+    def _build_contents(
         self,
         header_text: str,
         body_blocks: list[BodyBlock],
         video_entries: list[VideoEntry],
         *,
         request_headers: dict[str, str],
-    ) -> tuple[list[MediaContent], list[SendGroup]]:
+    ) -> list[MediaContent]:
         video_contents = self._build_video_contents(
             video_entries,
             request_headers=request_headers,
         )
 
         contents: list[MediaContent] = []
-        primary_contents: list[MediaContent] = []
         image_urls = [
             block["value"]
             for block in body_blocks
@@ -48,7 +48,6 @@ class ZhihuContentMixin:
                 return
             text_content = TextContent(self._join_sections(pending_text_parts))
             contents.append(text_content)
-            primary_contents.append(text_content)
             pending_text_parts.clear()
 
         append_text_part(header_text)
@@ -67,23 +66,11 @@ class ZhihuContentMixin:
             if image_content is None:
                 continue
             contents.append(image_content)
-            primary_contents.append(image_content)
 
         flush_text_parts()
         contents.extend(video_contents)
 
-        send_groups: list[SendGroup] = []
-        if primary_contents:
-            send_groups.append(
-                SendGroup(
-                    contents=primary_contents,
-                    force_merge=False,
-                    render_card=True,
-                )
-            )
-        for video in video_contents:
-            send_groups.append(SendGroup(contents=[video], force_merge=False))
-        return contents, send_groups
+        return contents
 
     @staticmethod
     def _pin_content_html(pin: dict[str, Any]) -> str:
@@ -879,13 +866,16 @@ class ZhihuContentMixin:
         request_headers: dict[str, str],
     ) -> VideoContent:
         if ".m3u8" in video_url.lower():
-            task = self.downloader.ytdlp_download_video_relaxed(
-                video_url,
-                headers=request_headers,
-                proxy=self.proxy,
-            )
-            return self.create_video_content_by_task(
-                task,
+
+            async def load_video() -> Path:
+                return await self.downloader.ytdlp_download_video_relaxed(
+                    video_url,
+                    headers=request_headers,
+                    proxy=self.proxy,
+                )
+
+            return self.create_video_content_by_loader(
+                load_video,
                 cover_url,
                 headers=request_headers,
             )

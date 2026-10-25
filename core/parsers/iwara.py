@@ -9,7 +9,7 @@ from curl_cffi import requests as curl_requests
 from PIL import Image, ImageFilter
 
 from ..config import PluginConfig
-from ..data import ImageContent, ParseResult, Platform, TextContent, VideoContent
+from ..data import ImageContent, MediaContent, Platform, TextContent, VideoContent
 from ..download import Downloader
 from ..exception import ParseException
 from .base import BaseParser, handle
@@ -92,7 +92,7 @@ class api:
             if q in url_list:
                 return url_list[q]
 
-        raise ParseException(f"未找到可用清晰度的视频下载链接")
+        raise ParseException("未找到可用清晰度的视频下载链接")
 
     @staticmethod
     def videoInfo_Get_Thumbnail(info: dict):
@@ -172,7 +172,7 @@ class IwaraParser(BaseParser):
         api.proxy = self.proxy
 
     @handle("iwara.tv/video", r"iwara\.tv/video/(?P<video_id>\w+)")
-    async def _parse(self, searched: Match[str]) -> ParseResult:
+    async def _parse(self, searched: Match[str]) -> list[MediaContent]:
         video_id = searched.group("video_id")
         video_info = await api.iwaraID_Get_videoInfo(video_id)
 
@@ -197,11 +197,14 @@ class IwaraParser(BaseParser):
         )
 
         if r18 == "ecchi" and self.mycfg.nsfw == "ignore":
-            return self.result(
-                title=video_title,
-                extra={"info": f"⚠ 该视频为 R18 内容，已按配置忽略"},
+            await self.send_desc_common(
+                video_title,
+                None,
+                [],
+                extra={"info": "⚠ 该视频为 R18 内容，已按配置忽略"},
                 url=f"https://www.iwara.tv/video/{video_id}",
             )
+            return self.parse_result([])
 
         img_path = await self.downloader.download_img(video_thumbnail, proxy=self.proxy)
         video_thumbnail_img = api.auto_blur_video_thumbnail(
@@ -217,27 +220,33 @@ class IwaraParser(BaseParser):
         # 构建发送信息
         send_info = f"视频描述: {video_body}\n\nTAG: {', '.join(f'#{tag}' for tag in video_tags)}"
 
-        video_contents = VideoContent(
-            path_task=self.downloader.download_video(video_url),
-            cover=video_thumbnail_img if video_thumbnail_img else None,
-            duration=video_duration,
-        )
-
         author = self.create_author(
             name=f"{video_user} ({video_user_username})",
             avatar_url=video_user_avatar_imgurl,
         )
-        return self.result(
-            title=video_title,
+        await self.send_desc_video(
+            video_title,
+            author,
+            cover=video_thumbnail_img if video_thumbnail_img else None,
+            duration=video_duration,
             text=send_info,
-            author=author,
             timestamp=timestamp,
-            contents=[video_contents],
             url=f"https://www.iwara.tv/video/{video_id}",
         )
 
+        video_content = VideoContent(
+            cover=video_thumbnail_img if video_thumbnail_img else None,
+            duration=video_duration,
+        )
+
+        async def load_video() -> Path:
+            return await self.downloader.download_video(video_url, proxy=self.proxy)
+
+        video_content.set_loader(load_video)
+        return self.parse_result([video_content])
+
     @handle("iwara.tv/image", r"iwara\.tv/image/(?P<image_id>\w+)")
-    async def _parse_image(self, searched: Match[str]) -> ParseResult:
+    async def _parse_image(self, searched: Match[str]) -> list[MediaContent]:
         image_id = searched.group("image_id")
         image_info = await api.IMG_iwaraID_Get_imageInfo(image_id)
 
@@ -249,11 +258,14 @@ class IwaraParser(BaseParser):
 
         # R18判断
         if image_rating == "ecchi" and self.mycfg.nsfw == "ignore":
-            return self.result(
-                title=image_title,
-                extra={"info": f"⚠ 该图片为 R18 内容，已按配置忽略"},
+            await self.send_desc_common(
+                image_title,
+                None,
+                [],
+                extra={"info": "⚠ 该图片为 R18 内容，已按配置忽略"},
                 url=f"https://www.iwara.tv/image/{image_id}",
             )
+            return self.parse_result([])
 
         # 提取图片URL列表
         image_urls = []
@@ -301,9 +313,10 @@ class IwaraParser(BaseParser):
             name=f"{user_name} ({user_username})",
             avatar_url=user_avatar_imgurl,
         )
-        return self.result(
-            title=image_title,
-            author=author,
-            contents=[text, *image_contents],
+        await self.send_desc_common(
+            image_title,
+            author,
+            [text, *image_contents],
             url=f"https://www.iwara.tv/image/{image_id}",
         )
+        return self.parse_result(image_contents)

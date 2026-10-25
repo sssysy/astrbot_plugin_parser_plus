@@ -69,23 +69,23 @@ class ZhihuHandlerMixin:
             labels=("赞同", "评论", "收藏", "喜欢"),
         )
         header_text = self._compose_article_send_header(article, author)
-        contents, send_groups = self._build_contents_and_groups(
+        contents = self._build_contents(
             header_text,
             ordered_blocks,
             video_entries,
             request_headers=request_headers,
         )
 
-        return self.result(
-            title=str(article.get("title") or "知乎文章"),
+        await self.send_desc_common(
+            str(article.get("title") or "知乎文章"),
+            author,
+            contents,
             text=card_text,
-            author=author,
             timestamp=self._safe_int(article.get("created")),
             url=url,
-            contents=contents,
-            send_groups=send_groups,
             extra={"info": self._build_article_card_meta(article, stats)},
         )
+        return self.parse_result(contents)
 
     async def parse_answer(self, question_id: str, answer_id: str):
         url = self._answer_url(question_id, answer_id)
@@ -130,23 +130,23 @@ class ZhihuHandlerMixin:
             answer=answer,
         )
         ordered_blocks = self._build_section_blocks("回答正文:", body_blocks, body_text)
-        contents, send_groups = self._build_contents_and_groups(
+        contents = self._build_contents(
             header_text,
             ordered_blocks,
             answer_videos,
             request_headers=request_headers,
         )
 
-        return self.result(
-            title=str(question.get("title") or "知乎回答"),
+        await self.send_desc_common(
+            str(question.get("title") or "知乎回答"),
+            author,
+            contents,
             text=card_text,
-            author=author,
             timestamp=self._safe_int(answer.get("createdTime")),
             url=url,
-            contents=contents,
-            send_groups=send_groups,
             extra={"info": self._build_answer_card_meta(answer_stats)},
         )
+        return self.parse_result(contents)
 
     async def parse_question(self, question_id: str):
         url = self._question_url(question_id)
@@ -207,23 +207,23 @@ class ZhihuHandlerMixin:
             answer_blocks,
             answer_text,
         )
-        contents, send_groups = self._build_contents_and_groups(
+        contents = self._build_contents(
             header_text,
             ordered_blocks,
             answer_videos,
             request_headers=answer_headers,
         )
 
-        return self.result(
-            title=str(question.get("title") or "知乎问题"),
+        await self.send_desc_common(
+            str(question.get("title") or "知乎问题"),
+            author,
+            contents,
             text=card_text,
-            author=author,
             timestamp=self._safe_int(answer.get("createdTime")),
             url=url,
-            contents=contents,
-            send_groups=send_groups,
             extra={"info": self._build_question_card_meta(question_stats)},
         )
+        return self.parse_result(contents)
 
     async def parse_pin(self, pin_id: str):
         url = self._pin_url(pin_id)
@@ -250,20 +250,19 @@ class ZhihuHandlerMixin:
         )
         header_text = self._compose_pin_send_header(payload, author)
         ordered_blocks = self._build_section_blocks(None, body_blocks, body_text)
-        contents, send_groups = self._build_contents_and_groups(
+        contents = self._build_contents(
             header_text,
             ordered_blocks,
             video_entries,
             request_headers=request_headers,
         )
 
-        return self.result(
-            title=card_title,
-            text=None,
-            author=author,
+        await self.send_desc_common(
+            card_title,
+            author,
+            contents,
             timestamp=self._pin_timestamp(payload),
             url=url,
-            contents=contents,
-            send_groups=send_groups,
             extra={"info": self._build_pin_card_meta(payload)},
         )
+        return self.parse_result(contents)

@@ -19,7 +19,7 @@ from ..base import (
 )
 
 if TYPE_CHECKING:
-    from ...data import ParseResult
+    from ...data import MediaContent
 
 
 @dataclass(slots=True)
@@ -172,7 +172,7 @@ class DouyinParser(BaseParser):
         if not self._has_ttwid():
             raise ParseException("ttwid register returned no cookie")
 
-    async def parse_with_redirect(self, url: str) -> "ParseResult":
+    async def parse_with_redirect(self, url: str) -> "list[MediaContent]":
         """先重定向再解析，并更新 cookies"""
         logger.debug(f"[抖音] 短链重定向请求: {url}")
         async with self.session.get(
@@ -269,12 +269,24 @@ class DouyinParser(BaseParser):
             video_data.author.nickname, video_data.avatar_url, headers=self.ios_headers
         )
 
-        return self.result(
-            title=video_data.desc,
-            author=author,
-            contents=contents,
-            timestamp=video_data.create_time,
-        )
+        if video_data.video:
+            await self.send_desc_video(
+                video_data.desc,
+                author,
+                cover=cover_url,
+                duration=duration,
+                timestamp=video_data.create_time,
+                url=url,
+            )
+        else:
+            await self.send_desc_common(
+                video_data.desc,
+                author,
+                contents,
+                timestamp=video_data.create_time,
+                url=url,
+            )
+        return self.parse_result(contents)
 
     @staticmethod
     def _build_play_url(video_id: str, ratio: str) -> str:
@@ -384,9 +396,10 @@ class DouyinParser(BaseParser):
             slides_data.name, slides_data.avatar_url, headers=self.android_headers
         )
 
-        return self.result(
-            title=slides_data.desc,
-            author=author,
-            contents=contents,
+        await self.send_desc_common(
+            slides_data.desc,
+            author,
+            contents,
             timestamp=slides_data.create_time,
         )
+        return self.parse_result(contents)

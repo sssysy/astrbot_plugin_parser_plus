@@ -18,9 +18,7 @@ from ..data import (
     FileContent,
     ImageContent,
     MediaContent,
-    ParseResult,
     Platform,
-    SendGroup,
 )
 from ..download import Downloader
 from ..exception import ParseException
@@ -136,9 +134,7 @@ class PixivAPI:
             pass
         return None
 
-    async def get_manga_series_total(
-        self, series_id: str, user_id: str
-    ) -> int | None:
+    async def get_manga_series_total(self, series_id: str, user_id: str) -> int | None:
         """取漫画系列总话数"""
         url = f"{PIXIV_BASE}/user/{user_id}/series/{series_id}"
         try:
@@ -296,7 +292,6 @@ class PixivHelper:
 
 
 class PixivParser(BaseParser):
-
     platform: ClassVar[Platform] = Platform(name="pixiv", display_name="Pixiv")
 
     def __init__(self, config: PluginConfig, downloader: Downloader):
@@ -312,7 +307,6 @@ class PixivParser(BaseParser):
     async def close_session(self) -> None:
         await self.api.close()
         await super().close_session()
-
 
     async def _build_pdf(
         self, img_paths_task: asyncio.Task[list[Path]], pid: str
@@ -339,14 +333,10 @@ class PixivParser(BaseParser):
             proxy=self.proxy,
         )
         gif_path = self.cfg.cache_dir / f"pixiv_{pid}.gif"
-        await asyncio.to_thread(
-            PixivHelper.build_gif_sync, zip_path, frames, gif_path
-        )
+        await asyncio.to_thread(PixivHelper.build_gif_sync, zip_path, frames, gif_path)
         return gif_path
 
-    async def _build_ugoira_pdf(
-        self, pid: str, meta_body: dict[str, Any]
-    ) -> Path:
+    async def _build_ugoira_pdf(self, pid: str, meta_body: dict[str, Any]) -> Path:
         """动图 R18：下载 zip → 提取帧 → 合成 PDF（不打码）"""
         zip_url = meta_body.get("originalSrc") or meta_body.get("src", "")
         if not zip_url:
@@ -388,9 +378,7 @@ class PixivParser(BaseParser):
             headers=PIXIV_IMG_HEADERS,
         )
 
-    async def _download_cover(
-        self, cover_url: str, blur: bool
-    ) -> list[MediaContent]:
+    async def _download_cover(self, cover_url: str, blur: bool) -> list[MediaContent]:
         """下载封面图，blur 时模糊处理"""
         if not cover_url:
             return []
@@ -401,9 +389,7 @@ class PixivParser(BaseParser):
             cover_path = PixivHelper.blur(cover_path, radius=5)
         return [ImageContent(cover_path)]
 
-    async def _get_series_info(
-        self, body: dict[str, Any], user_id: str
-    ) -> str:
+    async def _get_series_info(self, body: dict[str, Any], user_id: str) -> str:
         """从 seriesNavData 提取系列进度信息"""
         series_nav = body.get("seriesNavData")
         if not series_nav or not isinstance(series_nav, dict):
@@ -425,23 +411,18 @@ class PixivParser(BaseParser):
             if series_type == "novel":
                 total = await self.api.get_novel_series_total(series_id)
             else:
-                total = await self.api.get_manga_series_total(
-                    series_id, user_id
-                )
+                total = await self.api.get_manga_series_total(series_id, user_id)
 
         if total is not None:
             return (
-                f"总共 {total} 话，现在下载第 {order} 话\n"
-                f"{series_label}: {series_url}"
+                f"总共 {total} 话，现在下载第 {order} 话\n{series_label}: {series_url}"
             )
         return (
-            f"系列: {series_title}\n当前下载第 {order} 话\n"
-            f"{series_label}: {series_url}"
+            f"系列: {series_title}\n当前下载第 {order} 话\n{series_label}: {series_url}"
         )
 
-
     @handle("pixiv.net/artworks", r"pixiv\.net/artworks/(?P<pid>\d+)")
-    async def _handle_artworks(self, searched: Match[str]) -> ParseResult:
+    async def _handle_artworks(self, searched: Match[str]) -> list[MediaContent]:
         pid = searched.group("pid")
         body = await self.api.get_illust_detail(pid)
         illust_type = int(body.get("illustType", 0))
@@ -451,7 +432,7 @@ class PixivParser(BaseParser):
 
     @handle("pid", r"(?<![a-zA-Z])pid\s*(?P<pid>\d+)")
     @handle("pixivid", r"(?<![a-zA-Z])pixivid\s*(?P<pid>\d+)")
-    async def _handle_pid(self, searched: Match[str]) -> ParseResult:
+    async def _handle_pid(self, searched: Match[str]) -> list[MediaContent]:
         pid = searched.group("pid")
         # 先尝试插画/漫画 API
         try:
@@ -472,16 +453,24 @@ class PixivParser(BaseParser):
 
     @handle("pixiv.net/novel/show", r"pixiv\.net/novel/show\.php\?id=(?P<nid>\d+)")
     @handle("pixiv.net/novel/", r"pixiv\.net/novel/(?P<nid>\d+)")
-    async def _handle_novel(self, searched: Match[str]) -> ParseResult:
+    async def _handle_novel(self, searched: Match[str]) -> list[MediaContent]:
         nid = searched.group("nid")
         body = await self.api.get_novel_detail(nid)
         return await self._handle_novel_core(nid, body)
 
-    async def _handle_novel_core(self, nid: str, body: dict[str, Any]) -> ParseResult:
+    async def _handle_novel_core(
+        self, nid: str, body: dict[str, Any]
+    ) -> list[MediaContent]:
         x_restrict = int(body.get("xRestrict", 0))
         nsfw_action = self._nsfw_action(x_restrict)
         if nsfw_action == "ignore":
-            return self.result(extra={"info": "R18 内容已忽略"})
+            await self.send_desc_common(
+                None,
+                None,
+                [],
+                extra={"info": "R18 内容已忽略"},
+            )
+            return self.parse_result([])
 
         blur = nsfw_action == "blur"
         user_id = body.get("userId", "")
@@ -492,9 +481,7 @@ class PixivParser(BaseParser):
         character_count = int(body.get("characterCount", 0))
 
         # 封面
-        cover_contents = await self._download_cover(
-            body.get("coverUrl", ""), blur
-        )
+        cover_contents = await self._download_cover(body.get("coverUrl", ""), blur)
 
         # 小说正文：直接从 API 的 content 字段获取
         novel_text = body.get("content", "")
@@ -506,34 +493,33 @@ class PixivParser(BaseParser):
             lambda: txt_path.write_text(novel_text, encoding="utf-8")
         )
 
-        send_groups: list[SendGroup] = [
-            SendGroup(contents=[], render_card=True, force_merge=False),
-            SendGroup(
-                contents=[FileContent(txt_path, name=f"pixiv_{nid}.txt")],
-                render_card=False,
-                force_merge=False,
-            ),
-        ]
-
         extra: dict[str, Any] = {}
         if character_count > 0:
             extra["info"] = f"字数: {character_count}"
 
-        return self.result(
-            author=author,
-            title=title,
+        await self.send_desc_common(
+            title,
+            author,
+            cover_contents,
             text=text,
             url=f"{PIXIV_BASE}/novel/show.php?id={nid}",
-            contents=cover_contents,
-            send_groups=send_groups,
             extra=extra,
         )
+        return self.parse_result([FileContent(txt_path, name=f"pixiv_{nid}.txt")])
 
-    async def _handle_illust(self, pid: str, body: dict[str, Any]) -> ParseResult:
+    async def _handle_illust(
+        self, pid: str, body: dict[str, Any]
+    ) -> list[MediaContent]:
         x_restrict = int(body.get("xRestrict", 0))
         nsfw_action = self._nsfw_action(x_restrict)
         if nsfw_action == "ignore":
-            return self.result(extra={"info": "R18 内容已忽略"})
+            await self.send_desc_common(
+                None,
+                None,
+                [],
+                extra={"info": "R18 内容已忽略"},
+            )
+            return self.parse_result([])
 
         blur = nsfw_action == "blur"
         user_id = body.get("userId", "")
@@ -556,64 +542,57 @@ class PixivParser(BaseParser):
             if ugoira_meta is None:
                 illust_type = 0  # 回退为普通插画处理
 
-        send_groups: list[SendGroup] = [
-            SendGroup(contents=[], render_card=True, force_merge=False),
-        ]
-
+        content_contents: list[MediaContent] = []
         if blur:
-            # R18：封面已模糊，正文合成为 PDF
+            # R18：正文合成为 PDF，下载与合成延迟到卡片发送后。
+            pdf_content = FileContent(name=f"pixiv_{pid}.pdf")
             if illust_type == 2:
-                # 动图 → 提取帧 → PDF
-                pdf_task = asyncio.create_task(
-                    self._build_ugoira_pdf(pid, ugoira_meta)  # type: ignore[arg-type]
-                )
+
+                async def load_ugoira_pdf() -> Path:
+                    return await self._build_ugoira_pdf(
+                        pid,
+                        ugoira_meta,  # type: ignore[arg-type]
+                    )
+
+                pdf_content.set_loader(load_ugoira_pdf)
             else:
-                # 静态插画 → 下载 → PDF
                 pages = await self.api.get_pages(pid)
                 img_urls = [p.get("urls", {}).get("original", "") for p in pages]
                 img_urls = [u for u in img_urls if u]
                 if not img_urls:
                     raise ParseException("未找到插画图片")
-                img_paths_task = asyncio.create_task(
-                    self.downloader.download_imgs_without_raise(
-                        img_urls, headers=PIXIV_IMG_HEADERS, proxy=self.proxy
+
+                async def load_pdf() -> Path:
+                    img_paths_task = asyncio.create_task(
+                        self.downloader.download_imgs_without_raise(
+                            img_urls,
+                            headers=PIXIV_IMG_HEADERS,
+                            proxy=self.proxy,
+                        )
                     )
+                    return await self._build_pdf(img_paths_task, pid)
+
+                pdf_content.set_loader(load_pdf)
+            content_contents.append(pdf_content)
+        elif illust_type == 2:
+            gif_content = ImageContent()
+
+            async def load_gif() -> Path:
+                return await self._build_gif(
+                    pid,
+                    ugoira_meta,  # type: ignore[arg-type]
                 )
-                pdf_task = asyncio.create_task(
-                    self._build_pdf(img_paths_task, pid)
-                )
-            send_groups.append(
-                SendGroup(
-                    contents=[FileContent(pdf_task, name=f"pixiv_{pid}.pdf")],
-                    render_card=False,
-                    force_merge=False,
-                )
-            )
+
+            gif_content.set_loader(load_gif)
+            content_contents.append(gif_content)
         else:
-            # 非 R18：正常发送图片
-            content_contents: list[MediaContent] = []
-            if illust_type == 2:
-                # 动图 → GIF
-                gif_path = await self._build_gif(pid, ugoira_meta)  # type: ignore[arg-type]
-                content_contents.append(ImageContent(gif_path))
-            else:
-                # 静态插画
-                pages = await self.api.get_pages(pid)
-                img_urls = [p.get("urls", {}).get("original", "") for p in pages]
-                img_urls = [u for u in img_urls if u]
-                if not img_urls:
-                    raise ParseException("未找到插画图片")
-                content_contents.extend(
-                    self.create_image_contents(
-                        img_urls, headers=PIXIV_IMG_HEADERS
-                    )
-                )
-            send_groups.append(
-                SendGroup(
-                    contents=content_contents,
-                    render_card=False,
-                    force_merge=False,
-                )
+            pages = await self.api.get_pages(pid)
+            img_urls = [p.get("urls", {}).get("original", "") for p in pages]
+            img_urls = [u for u in img_urls if u]
+            if not img_urls:
+                raise ParseException("未找到插画图片")
+            content_contents.extend(
+                self.create_image_contents(img_urls, headers=PIXIV_IMG_HEADERS)
             )
 
         extra: dict[str, Any] = {}
@@ -621,24 +600,34 @@ class PixivParser(BaseParser):
             extra["info"] = f"共 {page_count} 张"
         if ugoira_meta is None and int(body.get("illustType", 0)) == 2:
             fallback_msg = "动图元数据获取失败，已回退为静态图片"
-            extra["info"] = f"{extra['info']}\n{fallback_msg}" if extra.get("info") else fallback_msg
+            extra["info"] = (
+                f"{extra['info']}\n{fallback_msg}"
+                if extra.get("info")
+                else fallback_msg
+            )
 
-        return self.result(
-            author=author,
-            title=title,
+        await self.send_desc_common(
+            title,
+            author,
+            cover_contents,
             text=text,
             url=f"{PIXIV_BASE}/artworks/{pid}",
-            contents=cover_contents,
-            send_groups=send_groups,
             timestamp=PixivHelper.parse_timestamp(create_date),
             extra=extra,
         )
+        return self.parse_result(content_contents)
 
-    async def _handle_manga(self, pid: str, body: dict[str, Any]) -> ParseResult:
+    async def _handle_manga(self, pid: str, body: dict[str, Any]) -> list[MediaContent]:
         x_restrict = int(body.get("xRestrict", 0))
         nsfw_action = self._nsfw_action(x_restrict)
         if nsfw_action == "ignore":
-            return self.result(extra={"info": "R18 内容已忽略"})
+            await self.send_desc_common(
+                None,
+                None,
+                [],
+                extra={"info": "R18 内容已忽略"},
+            )
+            return self.parse_result([])
 
         blur = nsfw_action == "blur"
         user_id = body.get("userId", "")
@@ -665,19 +654,16 @@ class PixivParser(BaseParser):
                 extra["info"] = f"{extra_info}\n{max_page_msg}"
             else:
                 extra["info"] = max_page_msg
-            return self.result(
-                author=author,
-                title=title,
+            await self.send_desc_common(
+                title,
+                author,
+                cover_contents,
                 text=text,
                 url=f"{PIXIV_BASE}/artworks/{pid}",
-                contents=cover_contents,
-                send_groups=[ # 如果只构建卡片会再发一次纯文本，不确定是不是sender的bug，先用发送封面图缓解
-                    SendGroup(contents=[], render_card=True, force_merge=False),
-                    SendGroup(contents=cover_contents, render_card=False, force_merge=False),
-                ],
                 timestamp=PixivHelper.parse_timestamp(create_date),
                 extra=extra,
             )
+            return self.parse_result(cover_contents)
 
         # 封面
         cover_contents = await self._download_cover(cover_url, blur)
@@ -689,33 +675,31 @@ class PixivParser(BaseParser):
         if not img_urls:
             raise ParseException("未找到漫画图片")
 
-        img_paths_task = asyncio.create_task(
-            self.downloader.download_imgs_without_raise(
-                img_urls, headers=PIXIV_IMG_HEADERS, proxy=self.proxy
-            )
-        )
-        pdf_task = asyncio.create_task(self._build_pdf(img_paths_task, pid))
+        pdf_content = FileContent(name=f"pixiv_{pid}.pdf")
 
-        send_groups: list[SendGroup] = [
-            SendGroup(contents=[], render_card=True, force_merge=False),
-            SendGroup(
-                contents=[FileContent(pdf_task, name=f"pixiv_{pid}.pdf")],
-                render_card=False,
-                force_merge=False,
-            ),
-        ]
+        async def load_pdf() -> Path:
+            img_paths_task = asyncio.create_task(
+                self.downloader.download_imgs_without_raise(
+                    img_urls,
+                    headers=PIXIV_IMG_HEADERS,
+                    proxy=self.proxy,
+                )
+            )
+            return await self._build_pdf(img_paths_task, pid)
+
+        pdf_content.set_loader(load_pdf)
 
         extra: dict[str, Any] = {}
         if extra_info:
             extra["info"] = extra_info
 
-        return self.result(
-            author=author,
-            title=title,
+        await self.send_desc_common(
+            title,
+            author,
+            cover_contents,
             text=text,
             url=f"{PIXIV_BASE}/artworks/{pid}",
-            contents=cover_contents,
-            send_groups=send_groups,
             timestamp=PixivHelper.parse_timestamp(create_date),
             extra=extra,
         )
+        return self.parse_result([pdf_content])

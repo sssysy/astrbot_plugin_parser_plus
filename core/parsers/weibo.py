@@ -10,7 +10,7 @@ from msgspec import Struct
 
 from ..config import PluginConfig
 from ..cookie import CookieJar
-from ..data import MediaContent
+from ..data import Description, MediaContent
 from ..download import Downloader
 from .base import BaseParser, ParseException, Platform, handle
 
@@ -139,14 +139,15 @@ class WeiBoParser(BaseParser):
 
         end_text = "\n\n".join(text_buffer) if text_buffer else None
 
-        return self.result(
-            url=data.url,
-            title=data.title,
-            author=author,
-            timestamp=data.create_at_unix,
+        await self.send_desc_common(
+            data.title,
+            author,
+            contents,
             text=end_text,
-            contents=contents,
+            timestamp=data.create_at_unix,
+            url=data.url,
         )
+        return self.parse_result(contents)
 
     async def parse_fid(self, fid: str):
         """
@@ -209,13 +210,15 @@ class WeiBoParser(BaseParser):
         # 时间戳
         timestamp = data.get("real_date")
 
-        return self.result(
-            title=title,
+        await self.send_desc_video(
+            title,
+            author,
+            cover=cover_url,
             text=text,
-            author=author,
-            contents=contents,
             timestamp=timestamp,
+            url=f"https://video.weibo.com/show?fid={fid}",
         )
+        return self.parse_result(contents)
 
     async def parse_weibo_id(self, weibo_id: str):
         """解析微博 id (无 Cookie + 伪装 XHR + 不跟随重定向)"""
@@ -259,27 +262,18 @@ class WeiBoParser(BaseParser):
 
         weibo_data = msgspec.json.decode(body, type=WeiboResponse).data
 
-        return self.build_weibo_data(weibo_data)
+        return await self.build_weibo_data(weibo_data)
 
-    def build_weibo_data(self, data: "WeiboData"):
-        contents = []
-
-        # 添加视频内容
-        if video_url := data.video_url:
-            cover_url = data.cover_url
-            contents.append(self.create_video_content(video_url, cover_url))
-
-        # 添加图片内容
-        if image_urls := data.image_urls:
-            contents.extend(self.create_image_contents(image_urls))
-
-        # 构建作者
+    def _build_weibo_description(self, data: "WeiboData") -> Description:
+        contents = self._build_weibo_contents(data)
         author = self.create_author(data.display_name, data.user.profile_image_url)
-        repost = None
-        if data.retweeted_status:
-            repost = self.build_weibo_data(data.retweeted_status)
-
-        return self.result(
+        repost = (
+            self._build_weibo_description(data.retweeted_status)
+            if data.retweeted_status
+            else None
+        )
+        return Description(
+            platform=self.platform,
             title=data.title,
             text=data.text_content,
             author=author,
@@ -288,6 +282,34 @@ class WeiBoParser(BaseParser):
             url=data.url,
             repost=repost,
         )
+
+    def _build_weibo_contents(self, data: "WeiboData"):
+        contents = []
+        if video_url := data.video_url:
+            contents.append(self.create_video_content(video_url, data.cover_url))
+        if image_urls := data.image_urls:
+            contents.extend(self.create_image_contents(image_urls))
+        return contents
+
+    async def build_weibo_data(self, data: "WeiboData"):
+        contents = self._build_weibo_contents(data)
+        author = self.create_author(data.display_name, data.user.profile_image_url)
+        repost = (
+            self._build_weibo_description(data.retweeted_status)
+            if data.retweeted_status
+            else None
+        )
+        await self.send_desc_common(
+            data.title,
+            author,
+            contents,
+            text=data.text_content,
+            timestamp=data.timestamp,
+            url=data.url,
+            repost=repost,
+        )
+        final_contents = contents + (repost.contents if repost else [])
+        return self.parse_result(final_contents)
 
     def _base62_encode(self, number: int) -> str:
         """将数字转换为 base62 编码"""

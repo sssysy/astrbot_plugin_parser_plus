@@ -10,7 +10,7 @@ from aiohttp import ClientError
 
 from ..config import PluginConfig
 from ..cookie import CookieJar
-from ..data import MediaContent, Platform, SendGroup, TextContent
+from ..data import MediaContent, Platform, TextContent
 from ..download import Downloader
 from .base import BaseParser, ParseException, handle
 
@@ -67,7 +67,9 @@ class AllcppParser(BaseParser):
         info = self._parse_page(html_text)
 
         title = info["title"] or f"展品 {did}"
-        author = self.create_author(info["author_name"]) if info["author_name"] else None
+        author = (
+            self.create_author(info["author_name"]) if info["author_name"] else None
+        )
 
         # 图集（试阅）需要登录，未登录时退化为仅封面；样图同样并入
         gallery, external_links = self._extract_gallery_content(
@@ -107,26 +109,8 @@ class AllcppParser(BaseParser):
             contents.append(TextContent(text))
         contents.extend(image_contents)
 
-        send_groups: list[SendGroup] = []
-        if len(contents) >= self.cfg.forward_threshold:
-            # 达到阈值：整体一个 group，不设 force_merge，交由 sender 合并转发
-            send_groups.append(SendGroup(contents=contents))
-        else:
-            if text:
-                send_groups.append(
-                    SendGroup(contents=[TextContent(text)], force_merge=False)
-                )
-            for img in image_contents:
-                send_groups.append(SendGroup(contents=[img], force_merge=False))
-
-        return self.result(
-            title=title,
-            text=text,
-            author=author,
-            contents=contents,
-            send_groups=send_groups,
-            url=page_url,
-        )
+        await self.send_desc_common(title, author, contents, url=page_url)
+        return self.parse_result(contents)
 
     # https://www.allcpp.cn/w/<id>.do 图文（后花园文章）详情页
     @handle("allcpp.cn/w/", r"allcpp\.cn/w/(?P<wid>\d+)")
@@ -169,25 +153,8 @@ class AllcppParser(BaseParser):
             contents.append(TextContent(text))
         contents.extend(image_contents)
 
-        send_groups: list[SendGroup] = []
-        if len(contents) >= self.cfg.forward_threshold:
-            send_groups.append(SendGroup(contents=contents))
-        else:
-            if text:
-                send_groups.append(
-                    SendGroup(contents=[TextContent(text)], force_merge=False)
-                )
-            for img in image_contents:
-                send_groups.append(SendGroup(contents=[img], force_merge=False))
-
-        return self.result(
-            title=title,
-            text=text,
-            author=author,
-            contents=contents,
-            send_groups=send_groups,
-            url=page_url,
-        )
+        await self.send_desc_common(title, author, contents, url=page_url)
+        return self.parse_result(contents)
 
     async def _fetch_page(self, url: str) -> str:
         """拉取展品详情页 HTML"""
@@ -257,9 +224,7 @@ class AllcppParser(BaseParser):
             info["is_logged_in"] = m.group(1).lower() == "true"
 
         # 展品级试阅外链（登录后页面脚本中的 shiyueUrl / otherUrl）。
-        info["external_links"].extend(
-            self._extract_trial_url_variables(html_text)
-        )
+        info["external_links"].extend(self._extract_trial_url_variables(html_text))
 
         # 封面（取原图 href，不含 OSS 压缩样式）
         if m := search(r'<a class="djs-info-cover"[^>]*href="([^"]+)"', html_text):
@@ -287,7 +252,9 @@ class AllcppParser(BaseParser):
             uploader_block = m.group(1)
             if title_m := search(r'title="([^"]+)"', uploader_block):
                 info["author_name"] = title_m.group(1).strip()
-            elif label_m := search(r"<label[^>]*>(.*?)</label>", uploader_block, DOTALL):
+            elif label_m := search(
+                r"<label[^>]*>(.*?)</label>", uploader_block, DOTALL
+            ):
                 info["author_name"] = self._clean_text(label_m.group(1))
 
         # 展品详情（登录后才有）：文字描述 + 图集样图
@@ -304,9 +271,7 @@ class AllcppParser(BaseParser):
                 for u in findall(r'<img[^>]*src="([^"]+)"', detail_block)
                 if (url := self._build_content_pic_url(u))
             ]
-            info["external_links"].extend(
-                self._extract_external_links(detail_block)
-            )
+            info["external_links"].extend(self._extract_external_links(detail_block))
 
         info["external_links"] = self._deduplicate_links(info["external_links"])
         return info
@@ -337,9 +302,7 @@ class AllcppParser(BaseParser):
         tags = work.get("tags")
         if isinstance(tags, list):
             info["tags"] = [
-                t.get("tag")
-                for t in tags
-                if isinstance(t, dict) and t.get("tag")
+                t.get("tag") for t in tags if isinstance(t, dict) and t.get("tag")
             ]
 
         foreword = work.get("foreword")
@@ -548,9 +511,7 @@ class AllcppParser(BaseParser):
     @staticmethod
     def _extract_external_links(content: str) -> list[str]:
         """提取试阅 HTML 中的外部 HTTP(S) 链接，忽略 AllCPP 站内地址。"""
-        raw_links = findall(
-            r"(?:https?:)?//[^\s<>\"']+", unescape(content or "")
-        )
+        raw_links = findall(r"(?:https?:)?//[^\s<>\"']+", unescape(content or ""))
         raw_links = [
             f"https:{url}" if url.startswith("//") else url for url in raw_links
         ]
@@ -563,9 +524,7 @@ class AllcppParser(BaseParser):
             r"(?:shiyueUrl|otherUrl)\s*[:=]\s*[\"']([^\"']+)[\"']",
             unescape(content or ""),
         )
-        values = [
-            f"https:{url}" if url.startswith("//") else url for url in values
-        ]
+        values = [f"https:{url}" if url.startswith("//") else url for url in values]
         return AllcppParser._deduplicate_links(values)
 
     @staticmethod

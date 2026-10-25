@@ -14,7 +14,7 @@ from astrbot.api import logger
 
 from ..config import PluginConfig
 from ..cookie import CookieJar
-from ..data import ImageContent, Platform, VideoContent
+from ..data import Platform, VideoContent
 from ..download import Downloader
 from ..exception import ParseException
 from .base import BaseParser, handle
@@ -336,37 +336,28 @@ class InstagramParser(BaseParser):
         else:
             kind = ""
         is_video_url = kind in {"reel", "reels", "tv"}
-        shortcode = self._extract_shortcode(final_url) or self._extract_shortcode(url)
-        base_prefix = f"ig_{shortcode}" if shortcode else "ig"
         info = await self._fetch_ytdlp_info(final_url)
         contents = []
         if info is None:
             if not is_video_url:
                 gallery_urls = await self._gallery_dl_image_urls(final_url)
-                for idx, image_url in enumerate(gallery_urls, start=1):
-                    image_name = (
-                        f"{base_prefix}_{idx}{Path(urlparse(image_url).path).suffix}"
-                        if shortcode
-                        else None
-                    )
-                    image_task = self.downloader.download_img(
-                        image_url,
-                        img_name=image_name,
-                        headers=self.headers,
-                        proxy=self.proxy,
-                    )
-                    contents.append(ImageContent(image_task))
-                return self.result(contents=contents, url=final_url)
-            try:
-                video_task = await self.downloader.ytdlp_download_video(
+                contents = self.create_image_contents(gallery_urls)
+                await self.send_desc_common(None, None, contents, url=final_url)
+                return self.parse_result(contents)
+            await self.send_desc_video(None, None, url=final_url)
+
+            async def load_video() -> Path:
+                return await self.downloader.ytdlp_download_video(
                     final_url,
                     cookiefile=self.cookiejar.cookie_file,
                     headers=self.headers,
                     proxy=self.proxy,
                     format="best[height<=720]/bestvideo[height<=720]+bestaudio/best",
                 )
-                contents.append(VideoContent(video_task, None, 0))
-                return self.result(contents=contents, url=final_url)
+
+            video = self.create_video_content_by_loader(load_video)
+            try:
+                return self.parse_result([video])
             except ParseException as exc:
                 raise ParseException("未找到可下载的视频") from exc
         entries = self._iter_entries(info)
@@ -385,20 +376,31 @@ class InstagramParser(BaseParser):
             if not video_url:
                 continue
             if video_url:
-                cover_task = None
                 if audio_url:
                     output_path = self._merged_output_path(video_url, audio_url)
                     if output_path.exists():
-                        video_task = output_path
+                        contents.append(VideoContent(output_path, None, duration))
                     else:
-                        video_task = self.downloader.download_av_and_merge(
-                            video_url,
-                            audio_url,
-                            output_path=output_path,
-                            headers=self.headers,
-                            proxy=self.proxy,
+
+                        async def load_merged(
+                            v_url: str = video_url,
+                            a_url: str = audio_url,
+                            out: Path = output_path,
+                            length: float = duration,
+                        ) -> Path:
+                            return await self.downloader.download_av_and_merge(
+                                v_url,
+                                a_url,
+                                output_path=out,
+                                headers=self.headers,
+                                proxy=self.proxy,
+                            )
+
+                        contents.append(
+                            self.create_video_content_by_loader(
+                                load_merged, duration=duration
+                            )
                         )
-                    contents.append(VideoContent(video_task, cover_task, duration))
                 else:
                     v_url, a_url = (None, None)
                     if single_entry:
@@ -406,35 +408,50 @@ class InstagramParser(BaseParser):
                     if a_url and v_url:
                         output_path = self._merged_output_path(v_url, a_url)
                         if output_path.exists():
-                            video_task = output_path
+                            contents.append(VideoContent(output_path, None, duration))
                         else:
-                            video_task = self.downloader.download_av_and_merge(
-                                v_url,
-                                a_url,
-                                output_path=output_path,
-                                headers=self.headers,
-                                proxy=self.proxy,
+
+                            async def load_nested_merged(
+                                vv_url: str = v_url,
+                                aa_url: str = a_url,
+                                out: Path = output_path,
+                            ) -> Path:
+                                return await self.downloader.download_av_and_merge(
+                                    vv_url,
+                                    aa_url,
+                                    output_path=out,
+                                    headers=self.headers,
+                                    proxy=self.proxy,
+                                )
+
+                            contents.append(
+                                self.create_video_content_by_loader(
+                                    load_nested_merged, duration=duration
+                                )
                             )
-                        contents.append(VideoContent(video_task, cover_task, duration))
                         if meta_entry is None:
                             meta_entry = entry
                         continue
 
                     fallback_video_tried = True
-                    try:
-                        video_task = await self.downloader.ytdlp_download_video(
+
+                    async def load_fallback() -> Path:
+                        return await self.downloader.ytdlp_download_video(
                             final_url,
                             cookiefile=self.cookiejar.cookie_file,
                             headers=self.headers,
                             proxy=self.proxy,
                             format="best[height<=720]/bestvideo[height<=720]+bestaudio/best",
                         )
-                        contents.append(VideoContent(video_task, cover_task, duration))
-                        if meta_entry is None:
-                            meta_entry = entry
-                        continue
-                    except ParseException:
-                        pass
+
+                    contents.append(
+                        self.create_video_content_by_loader(
+                            load_fallback, duration=duration
+                        )
+                    )
+                    if meta_entry is None:
+                        meta_entry = entry
+                    continue
             if meta_entry is None:
                 meta_entry = entry
 
@@ -442,34 +459,26 @@ class InstagramParser(BaseParser):
         if not contents:
             fallback_url = meta.get("webpage_url") or final_url
             if is_video_url and not fallback_video_tried:
-                try:
-                    duration = float(meta.get("duration") or 0)
-                    if isinstance(fallback_url, str) and fallback_url:
-                        video_task = await self.downloader.ytdlp_download_video(
+                duration = float(meta.get("duration") or 0)
+                if isinstance(fallback_url, str) and fallback_url:
+
+                    async def load_fallback_url() -> Path:
+                        return await self.downloader.ytdlp_download_video(
                             fallback_url,
                             cookiefile=self.cookiejar.cookie_file,
                             headers=self.headers,
                             proxy=self.proxy,
                             format="best[height<=720]/bestvideo[height<=720]+bestaudio/best",
                         )
-                        contents.append(VideoContent(video_task, None, duration))
-                except ParseException:
-                    pass
+
+                    contents.append(
+                        self.create_video_content_by_loader(
+                            load_fallback_url, duration=duration
+                        )
+                    )
             if not contents and not is_video_url:
                 gallery_urls = await self._gallery_dl_image_urls(final_url)
-                for idx, image_url in enumerate(gallery_urls, start=1):
-                    image_name = (
-                        f"{base_prefix}_{idx}{Path(urlparse(image_url).path).suffix}"
-                        if shortcode
-                        else None
-                    )
-                    image_task = self.downloader.download_img(
-                        image_url,
-                        img_name=image_name,
-                        headers=self.headers,
-                        proxy=self.proxy,
-                    )
-                    contents.append(ImageContent(image_task))
+                contents.extend(self.create_image_contents(gallery_urls))
             if not contents:
                 raise ParseException("未找到可下载的视频")
         author_name = None
@@ -482,9 +491,28 @@ class InstagramParser(BaseParser):
         title = meta.get("title") or info.get("title")
         timestamp = meta.get("timestamp") or info.get("timestamp")
 
-        return self.result(
-            title=title,
-            author=author,
-            contents=contents,
-            timestamp=timestamp,
-        )
+        if any(isinstance(content, VideoContent) for content in contents):
+            duration = next(
+                (
+                    content.duration
+                    for content in contents
+                    if isinstance(content, VideoContent)
+                ),
+                0.0,
+            )
+            await self.send_desc_video(
+                title,
+                author,
+                duration=duration,
+                timestamp=timestamp,
+                url=final_url,
+            )
+        else:
+            await self.send_desc_common(
+                title,
+                author,
+                contents,
+                timestamp=timestamp,
+                url=final_url,
+            )
+        return self.parse_result(contents)

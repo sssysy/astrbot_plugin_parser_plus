@@ -1,11 +1,12 @@
 import re
 from typing import ClassVar
+
 import aiohttp
 from yt_dlp.utils import DownloadError, UnsupportedError
 
 from ..config import PluginConfig
 from ..cookie import CookieJar
-from ..data import Author, ImageContent, Platform, VideoContent
+from ..data import Author, Platform
 from ..download import Downloader
 from .base import BaseParser, handle
 
@@ -42,19 +43,16 @@ class TikTokParser(BaseParser):
                         # 提取图文中的所有图片地址
                         images = data.get("images", [])
                         if images:
-                            contents = []
-                            for img_url in images:
-                                img_task = self.downloader.download_img(
-                                    url=img_url, headers=self.headers, proxy=self.proxy
-                                )
-                                contents.append(ImageContent(img_task))
-
-                            return self.result(
-                                title=title,
-                                author=Author(name=author_name),
-                                contents=contents,
+                            contents = self.create_image_contents(images)
+                            author = Author(name=author_name)
+                            await self.send_desc_common(
+                                title,
+                                author,
+                                contents,
                                 timestamp=timestamp,
+                                url=url,
                             )
+                            return self.parse_result(contents)
         except Exception:
             pass
         return None
@@ -88,9 +86,14 @@ class TikTokParser(BaseParser):
                 proxy=self.proxy,
             )
 
-            # 下载封面和视频
-            cover = self.downloader.download_img(
-                url=video_info.thumbnail, headers=self.headers, proxy=self.proxy
+            author = Author(name=video_info.channel)
+            await self.send_desc_video(
+                video_info.title,
+                author,
+                cover=video_info.thumbnail,
+                duration=video_info.duration,
+                timestamp=video_info.timestamp,
+                url=url,
             )
             video = self.downloader.ytdlp_download_video(
                 url,
@@ -99,13 +102,12 @@ class TikTokParser(BaseParser):
                 proxy=self.proxy,
                 format="best",
             )
-
-            return self.result(
-                title=video_info.title,
-                author=Author(name=video_info.channel),
-                contents=[VideoContent(video, cover, duration=video_info.duration)],
-                timestamp=video_info.timestamp,
+            content = self.create_video_content(
+                video,
+                video_info.thumbnail,
+                duration=video_info.duration,
             )
+            return self.parse_result([content])
 
         except (DownloadError, UnsupportedError, Exception):
             # 3. 如果 yt-dlp 提取失败，降级尝试图文解析兜底

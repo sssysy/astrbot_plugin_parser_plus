@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 from astrbot.api import logger
 
 from .config import PluginConfig
-from .data import GraphicsContent, ParseResult
+from .data import Description, GraphicsContent
 
 # 定义类型变量
 P = ParamSpec("P")
@@ -210,7 +210,7 @@ class GraphicsSectionData(SectionData):
 class RenderContext:
     """渲染上下文，存储渲染过程中的状态信息"""
 
-    result: ParseResult
+    result: Description
     """解析结果"""
     card_width: int
     """卡片宽度"""
@@ -374,7 +374,7 @@ class Renderer:
 
     async def _create_card_image(
         self,
-        result: ParseResult,
+        result: Description,
         not_repost: bool = True,
     ) -> PILImage:
         """创建卡片图片（用于递归调用）
@@ -419,7 +419,7 @@ class Renderer:
         await self._draw_sections(ctx, sections)
         return image
 
-    async def render_card(self, result: ParseResult) -> Path | None:
+    async def render_card(self, result: Description) -> Path | None:
         """渲染卡片并落盘，失败返回 None"""
         cache = self.cfg.cache_dir / f"card_{uuid.uuid4().hex}.png"
         try:
@@ -528,7 +528,7 @@ class Renderer:
             return output_avatar
 
     async def _calculate_sections(
-        self, result: ParseResult, content_width: int
+        self, result: Description, content_width: int
     ) -> list[SectionData]:
         """计算各部分内容的高度和数据"""
         sections: list[SectionData] = []
@@ -653,7 +653,7 @@ class Renderer:
 
     async def _calculate_header_section(
         self,
-        result: ParseResult,
+        result: Description,
         content_width: int,
     ) -> HeaderSectionData | None:
         """计算 header 部分的高度和内容"""
@@ -700,7 +700,7 @@ class Renderer:
             text_height=text_height,
         )
 
-    async def _calculate_repost_section(self, repost: ParseResult) -> RepostSectionData:
+    async def _calculate_repost_section(self, repost: Description) -> RepostSectionData:
         """计算转发内容的高度和内容（递归调用绘制方法）"""
         repost_image = await self._create_card_image(repost, False)
         # 缩放图片
@@ -717,7 +717,7 @@ class Renderer:
         )
 
     async def _calculate_image_grid_section(
-        self, result: ParseResult, content_width: int
+        self, result: Description, content_width: int
     ) -> ImageGridSectionData | None:
         """计算图片网格部分的高度和内容"""
         if not result.img_contents:

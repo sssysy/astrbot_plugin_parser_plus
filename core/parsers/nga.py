@@ -4,10 +4,10 @@ import random
 import re
 import time
 from typing import ClassVar
-from yarl import URL
 
 from aiohttp import ClientError
 from bs4 import BeautifulSoup, Tag
+from yarl import URL
 
 from ..config import PluginConfig
 from ..cookie import CookieJar
@@ -158,17 +158,22 @@ class NGAParser(BaseParser):
                     normalized_urls.append(u)
                 else:
                     normalized_urls.append(f"{self.base_img_url}/{u.lstrip('/')}")
-            contents.extend(self.create_image_contents(normalized_urls, headers={"Referer": "https://bbs.nga.cn/"}))
+            contents.extend(
+                self.create_image_contents(
+                    normalized_urls, headers={"Referer": "https://bbs.nga.cn/"}
+                )
+            )
             text = self.clean_nga_text(text)
 
-        return self.result(
-            title=title,
+        await self.send_desc_common(
+            title,
+            author,
+            contents,
             text=text,
             url=url,
-            author=author,
-            contents=contents,
             timestamp=timestamp,
         )
+        return self.parse_result(contents)
 
     @staticmethod
     def clean_nga_text(text: str, max_length: int = 500) -> str:

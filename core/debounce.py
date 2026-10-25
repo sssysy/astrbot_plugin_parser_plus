@@ -8,8 +8,7 @@ from .config import PluginConfig
 class Debouncer:
     """
     会话级防抖器
-    - 支持 link 防抖
-    - 支持 resource_id 防抖
+    - 仅保留链接防抖
     """
 
     def __init__(self, config: PluginConfig):
@@ -42,7 +41,3 @@ class Debouncer:
     def hit_link(self, session: str, link: str) -> bool:
         """基于 link 的防抖"""
         return self._hit(session, f"link:{link}")
-
-    def hit_resource(self, session: str, resource_id: str) -> bool:
-        """基于资源 ID 的防抖"""
-        return self._hit(session, f"res:{resource_id}")

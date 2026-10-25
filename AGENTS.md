@@ -2,7 +2,7 @@
 
 ## 0. 项目定位
 
-`astrbot_plugin_parser_plus` 是 AstrBot 原生插件，用于识别消息中的链接、分享卡片和引用内容，调用对应平台解析器生成统一的 `ParseResult`，再按发送策略回复媒体或信息卡片。
+`astrbot_plugin_parser_plus` 是 AstrBot 原生插件，用于识别消息中的链接、分享卡片和引用内容，解析器先发送 `Description` 描述卡片，再返回有序媒体内容列表交由发送层发布。
 
 - 插件入口是 `main.py` 中的 `ParserPlugin`。
 - 运行时配置来自 `AstrBotConfig`。
@@ -20,7 +20,7 @@
 - 不调用 `event.stop_event()`。
 - 不使用 `GreedyStr`。
 - 解析器通过 `BaseParser` 子类和 `@handle(...)` 注册，不在 `main.py` 手写平台分支。
-- 所有平台结果统一转换为 `core/data.py` 中的 `ParseResult`，不得让发送层理解平台私有结构。
+- 所有平台描述统一转换为 `core/data.py` 中的 `Description`，最终结果统一为有序媒体内容列表，不得让发送层理解平台私有结构。
 - 信息卡片由 `core/render.py` 使用 Pillow + apilmoji 绘制，不使用 HTML 模板、Playwright、`html_render()` 或本地静态文件服务器。
 - 下载能力统一由 `core/download.py` 提供；新增解析器不得自行实现落盘下载链路。
 - `core/sender.py` 只负责“怎么发”，不负责“怎么解析”。
@@ -39,7 +39,7 @@ astrbot_plugin_parser/
 ├── CHANGELOG.md
 ├── core/
 │   ├── config.py               # ConfigNode、ParserConfig、PluginConfig
-│   ├── data.py                 # ParseResult、MediaContent、SendGroup 等模型
+│   ├── data.py                 # Description、MediaContent 等模型
 │   ├── download.py             # 共享 aiohttp 下载、yt-dlp、媒体缓存
 │   ├── render.py               # Pillow 卡片渲染
 │   ├── sender.py               # 发送计划、消息段构建与发送
@@ -105,9 +105,9 @@ ruff check main.py core tests
 6. 用“关键词预筛选 + 正则匹配”选择第一个 parser。
 7. Aiocqhttp 群聊执行贴表情仲裁。
 8. 执行链接级防抖。
-9. 调用对应 parser 的 `parse()`。
-10. 用 `ParseResult.get_resource_id()` 执行资源级防抖。
-11. 交给 `MessageSender.send_parse_result()` 发送。
+9. 调用对应 parser 的 `parse()`；parser 在取得描述信息后发送 `Description` 卡片。
+10. 卡片发送完成后，调用 `MessageSender.parse_result()` 下载并发送最终内容列表。
+11. 不执行文字回退。
 
 修改此顺序前必须说明原因，并检查白名单、@ 规则、仲裁、防抖和引用解析是否会回归。不要另起第二个自动链接入口。
 
@@ -142,9 +142,10 @@ ruff check main.py core tests
 - API 请求优先使用 `self.session`，以复用超时、代理和连接池。
 - 媒体下载使用 `self.downloader` 或 `BaseParser.create_*_content()`，不得在 parser 中手工写文件。
 - 短链解析优先使用 `parse_with_redirect()`；需要多次重定向时使用 `get_final_url()`。
-- 返回统一结果时使用 `self.result(...)`。
+- 描述卡片使用 `self.send_desc_common(...)` 或 `self.send_desc_video(...)`。
+- 最终内容使用 `self.parse_result([...])` 返回，列表顺序就是发送顺序。
 - 解析失败抛出 `ParseException` 或其子类，不返回伪造的占位媒体。
-- parser 只负责获取和标准化内容，不渲染卡片、不发送消息、不修改会话黑名单。
+- parser 不直接操作 AstrBot 消息组件，只调用基类描述发送 API 并返回最终内容列表。
 - 不使用测试链接、测试账号或测试 Cookie 作为运行时兜底。
 - `__init__` 中避免网络请求和长时间阻塞；可在首次解析时再懒加载凭证。
 
@@ -161,21 +162,24 @@ class FooParser(BaseParser):
     @handle("foo.com", r"foo\.com/post/(?P<post_id>\d+)")
     async def _parse_post(self, searched: Match[str]):
         post_id = searched.group("post_id")
-        # 请求 API、下载媒体、构建内容
-        return self.result(
-            title="...",
-            contents=[...],
+        info = await self.fetch_info(post_id)
+        await self.send_desc_common(
+            info.title,
+            info.author,
+            [info.text, *info.card_images],
             url=f"https://foo.com/post/{post_id}",
         )
+        # 卡片发送后才创建最终媒体下载任务
+        return self.parse_result([info.video, *info.images])
 ```
 
 ## 7. 数据模型与结果
 
-- `ParseResult` 是 parser 与 sender 之间唯一的公共结果模型。
-- `contents` 保存主要媒体和文本；`repost` 保存转发内容；`send_groups` 用于需要分组发送的特殊场景。
-- `MediaContent.path_task` 可以保存 `Path` 或异步下载任务，按需通过 `get_path()` 解析。
+- `Description` 只承载描述卡片数据，可包含标题、作者、文字和卡片图片，不包含发送分组。
+- `parse_result()` 只透传最终内容列表，不再构造大而全的结果对象。
+- `MediaContent` 支持 `Path`、异步任务或延迟 loader；最终媒体在 `parse_result()` 阶段才应开始下载。
 - 图片、视频、音频、文件、动态图和图文分别使用对应 `*Content` 类型，不要用字符串冒充媒体。
-- `ParseResult.get_resource_id()` 是防抖指纹，必须保持轻量、稳定、无 IO；不要加入随机值、Cookie 或 Token。
+- 列表顺序就是最终发送顺序，发送层不得重新按媒体类型排序。
 - 修改公共模型时同时检查 `core/render.py`、`core/sender.py`、`core/data.py` 中的序列化/遍历逻辑和相关测试。
 
 ## 8. 下载、异步与资源释放
@@ -200,7 +204,8 @@ class FooParser(BaseParser):
 发送：
 
 - `core/sender.py` 不解析站点、不重新请求站点、不修改 parser 配置。
-- 发送策略由 `SendGroup` 和当前配置决定：预览卡片、转发阈值、合并转发。
+- 发送分为两阶段：`send_desc()` 发送描述卡片，`parse_result()` 按列表顺序发送最终内容。
+- 不存在文字回退、`SendGroup` 或按媒体类型重排。
 - 统一使用 `await event.send(event.chain_result(...))`。
 - 不调用 `event.stop_event()`，不修改其他插件的事件状态。
 - 发送失败要记录必要的消息段元信息，但不能记录大段二进制或敏感内容。
@@ -256,7 +261,9 @@ class FooParser(BaseParser):
 - [ ] 新 parser 已在 `_conf_schema.json` 中配置；需要默认启用时也更新了 `default_template.json`。
 - [ ] `@handle()` 关键词唯一，正则只匹配明确 host/path。
 - [ ] API 请求异步、有限重试，媒体下载经过 `Downloader`。
-- [ ] parser 返回 `ParseResult`，不自行发送消息或渲染卡片。
+- [ ] parser 通过 `send_desc_*` 发送描述，并返回有序内容列表。
+- [ ] 卡片发送完成前没有启动最终媒体下载。
+- [ ] 不存在文字回退、`SendGroup` 或媒体类型重排。
 - [ ] sender 不执行解析或二次请求。
 - [ ] 长生命周期会话、任务和调度器均有释放路径。
 - [ ] 错误信息不暴露 Cookie、Token、堆栈和原始响应。

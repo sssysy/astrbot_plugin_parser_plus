@@ -45,6 +45,15 @@ class YouTubeParser(BaseParser):
         )
         author = await self._fetch_author_info(video_info.channel_id)
 
+        await self.send_desc_video(
+            video_info.title,
+            author,
+            cover=video_info.thumbnail,
+            duration=video_info.duration,
+            timestamp=video_info.timestamp,
+            url=url,
+        )
+
         contents = []
         if video_info.duration <= self.cfg.max_duration:
             video = self.downloader.ytdlp_download_video(
@@ -65,12 +74,7 @@ class YouTubeParser(BaseParser):
         else:
             contents.extend(self.create_image_contents([video_info.thumbnail]))
 
-        return self.result(
-            title=video_info.title,
-            author=author,
-            contents=contents,
-            timestamp=video_info.timestamp,
-        )
+        return self.parse_result(contents)
 
     @handle(
         "ym",
@@ -87,6 +91,15 @@ class YouTubeParser(BaseParser):
         )
         author = await self._fetch_author_info(video_info.channel_id)
 
+        await self.send_desc_video(
+            video_info.title,
+            author,
+            cover=video_info.thumbnail,
+            duration=video_info.duration,
+            timestamp=video_info.timestamp,
+            url=url,
+        )
+
         contents = []
         contents.extend(self.create_image_contents([video_info.thumbnail]))
 
@@ -101,12 +114,7 @@ class YouTubeParser(BaseParser):
                 self.create_audio_content(audio_task, duration=video_info.duration)
             )
 
-        return self.result(
-            title=video_info.title,
-            author=author,
-            contents=contents,
-            timestamp=video_info.timestamp,
-        )
+        return self.parse_result(contents)
 
     async def _fetch_author_info(self, channel_id: str):
         url = "https://www.youtube.com/youtubei/v1/browse?prettyPrint=false"

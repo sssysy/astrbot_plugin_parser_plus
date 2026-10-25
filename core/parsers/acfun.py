@@ -1,4 +1,3 @@
-import asyncio
 import json
 import re
 import time
@@ -12,6 +11,7 @@ from astrbot.api import logger
 
 from ..config import PluginConfig
 from ..cookie import CookieJar
+from ..data import VideoContent
 from ..download import Downloader
 from ..exception import DownloadException, ParseException
 from ..utils import safe_unlink
@@ -47,16 +47,21 @@ class AcfunParser(BaseParser):
             timestamp = None
         text = f"简介: {description}"
 
-        # 下载视频
-        video_task = asyncio.create_task(self.download_video(m3u8_url, acid))
-
-        return self.result(
-            title=title,
+        await self.send_desc_video(
+            title,
+            author,
             text=text,
-            author=author,
             timestamp=timestamp,
-            contents=[self.create_video_content(video_task)],
+            url=url,
         )
+
+        video = VideoContent()
+
+        async def load_video() -> Path:
+            return await self.download_video(m3u8_url, acid)
+
+        video.set_loader(load_video)
+        return self.parse_result([video])
 
     async def parse_video_info(self, url: str) -> tuple[str, str, str, str, str]:
         """解析acfun链接获取详细信息

@@ -77,9 +77,7 @@ class MetubeParser(BaseParser):
 
     async def _request_json(self, method: str, path: str, **kwargs) -> dict:
         """请求 Metube API 并解析 JSON 响应（无单请求超时，调用方用管线截止时间约束）"""
-        async with self.api.request(
-            method, f"{self.api_base}{path}", **kwargs
-        ) as resp:
+        async with self.api.request(method, f"{self.api_base}{path}", **kwargs) as resp:
             if resp.status >= 400:
                 detail = (await resp.text())[:200]
                 raise ClientError(f"HTTP {resp.status} {resp.reason} {detail}")
@@ -171,9 +169,7 @@ class MetubeParser(BaseParser):
                     self._request_json("GET", "/history"), remaining
                 )
             except TimeoutError:
-                raise DownloadException(
-                    f"等待 Metube 下载超时({timeout}秒)"
-                ) from None
+                raise DownloadException(f"等待 Metube 下载超时({timeout}秒)") from None
 
             live = next(
                 (
@@ -200,9 +196,10 @@ class MetubeParser(BaseParser):
                     None,
                 )
                 # 仅采信本次提交之后入队的 done 条目，历史残留继续等待
-                fresh = entry is not None and self._normalize_ts(
-                    entry.get("timestamp")
-                ) >= submit_epoch - 60
+                fresh = (
+                    entry is not None
+                    and self._normalize_ts(entry.get("timestamp")) >= submit_epoch - 60
+                )
                 if entry is not None and fresh:
                     if entry.get("status") == "error":
                         raise DownloadException(
@@ -253,9 +250,7 @@ class MetubeParser(BaseParser):
         # /add 会同步解析链接后才响应，慢代理下可能长时间无响应。
         # 因此把请求放入后台任务、不阻塞等待响应，以 /history 中任务条目
         # 的出现为准；/add 的 error 状态仅用于快速失败
-        add_task = asyncio.create_task(
-            self._request_json("POST", "/add", json=payload)
-        )
+        add_task = asyncio.create_task(self._request_json("POST", "/add", json=payload))
         video_id = (
             match.group(1) if (match := self.VIDEO_ID_RE.search(submit_url)) else None
         )
@@ -320,9 +315,7 @@ class MetubeParser(BaseParser):
             await self._delete_download(finished["url"], "done")
         return video_path
 
-    async def _fetch_file(
-        self, file_url: str, file_name: str, deadline: float
-    ) -> Path:
+    async def _fetch_file(self, file_url: str, file_name: str, deadline: float) -> Path:
         """从 Metube 静态端点取回完成文件到缓存目录（受管线截止时间约束）"""
         file_path = self.cfg.cache_dir / file_name
         if file_path.exists():
@@ -384,9 +377,7 @@ class MetubeParser(BaseParser):
         url = searched.group(0)
         if not url.startswith(("http://", "https://")):
             url = f"https://{url}"
-        video_id = (
-            match.group(1) if (match := self.VIDEO_ID_RE.search(url)) else None
-        )
+        video_id = match.group(1) if (match := self.VIDEO_ID_RE.search(url)) else None
         cache_name = self._cache_name(video_id)
 
         # 缓存判断：仅比对视频 ID，命中即直接发送本地缓存
@@ -395,7 +386,8 @@ class MetubeParser(BaseParser):
             cache_path = self.cfg.cache_dir / cache_name
             if cache_path.exists():
                 logger.info(f"[metube] 命中缓存: {cache_name}")
-                return self.result(contents=[VideoContent(cache_path)])
+                await self.send_desc_video(cache_name, None, url=url)
+                return self.parse_result([VideoContent(cache_path)])
 
         # 第一层限制：本地提取元数据，时长超限直接拒绝；
         # 体积按清晰度上限逐级回退，选出不撞墙的最高档
@@ -433,6 +425,19 @@ class MetubeParser(BaseParser):
             logger.info(f"[metube] 清晰度选择: {chosen} (预估 {est_mb}) | {url}")
             quality = chosen
 
+        author = (
+            self.create_author(raw["channel"]) if raw and raw.get("channel") else None
+        )
+        title = raw.get("title") if raw else None
+        await self.send_desc_video(
+            title,
+            author,
+            cover=raw.get("thumbnail") if raw else None,
+            duration=duration,
+            timestamp=raw.get("timestamp") if raw else None,
+            url=url,
+        )
+
         # 提交 Metube 并在后台等待下载完成（元信息缺失时完全交由 Metube 处理）
         video_task = asyncio.create_task(
             self._download_via_metube(url, quality=quality, cache_name=cache_name),
@@ -444,22 +449,19 @@ class MetubeParser(BaseParser):
                 duration=duration,
             )
         ]
-        return self.result(
-            title=raw.get("title") if raw else None,
-            author=self.create_author(raw["channel"])
-            if raw and raw.get("channel")
-            else None,
-            contents=contents,
-            timestamp=raw.get("timestamp") if raw else None,
-        )
+        return self.parse_result(contents)
 
-    def _reject_result(self, raw: dict, reason: str):
-        """超限视频返回纯文本说明，不提交 Metube"""
-        return self.result(
-            title=raw.get("title"),
-            author=self.create_author(raw["channel"]) if raw.get("channel") else None,
-            text=f"视频{reason}, 已跳过下载",
+    async def _reject_result(self, raw: dict, reason: str):
+        """超限视频只发送描述，不提交 Metube。"""
+        author = self.create_author(raw["channel"]) if raw.get("channel") else None
+        text = f"视频{reason}, 已跳过下载"
+        await self.send_desc_common(
+            raw.get("title"),
+            author,
+            [],
+            text=text,
         )
+        return self.parse_result([])
 
     async def _extract_video_meta(self, url: str) -> dict | None:
         """本地 yt-dlp 提取视频信息（主动启用 Node.js 运行时解签名）
@@ -527,9 +529,7 @@ class MetubeParser(BaseParser):
 
         def height_ok(fmt: dict) -> bool:
             height = fmt.get("height")
-            return cap is None or (
-                isinstance(height, (int, float)) and height <= cap
-            )
+            return cap is None or (isinstance(height, (int, float)) and height <= cap)
 
         video_cands: list[tuple[int, bool]] = []  # (体积, 是否符合编码偏好)
         audios: list[int] = []

@@ -1,4 +1,4 @@
-"""
+r"""
 from re import Match
 from typing import ClassVar
 
@@ -58,15 +58,17 @@ class ExampleParser(BaseParser):
         image_urls = data.get("images")
         images = self.create_image_contents(image_urls)
 
-        # 6. 返回解析结果
-        return self.result(
-            title=title,
+        # 6. 先发送描述卡片，再返回最终内容
+        await self.send_desc_video(
+            title,
+            author,
+            cover=cover_url,
+            duration=duration,
             text=description,
-            author=author,
-            contents=[video, *images],
             timestamp=timestamp,
             url=f"https://example.com/video/{video_id}",
         )
+        return self.parse_result([video, *images])
 
 
 

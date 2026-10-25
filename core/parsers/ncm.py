@@ -74,27 +74,29 @@ class NCMParser(BaseParser):
             audio_url, cover_url, duration=duration_ms // 1000
         )
 
-        # 4. 返回
-        return self.result(
-            title=f"{title}{'（' + sub_title + '）' if sub_title else ''}",
+        # 4. 发送描述并返回最终音频
+        await self.send_desc_common(
+            f"{title}{'（' + sub_title + '）' if sub_title else ''}",
+            author,
+            [],
             text=f"专辑：{album_name}",
-            author=author,
-            contents=[audio],
-            timestamp=None,
             url=f"https://music.163.com/#/song?id={song_id}",
         )
+        return self.parse_result([audio])
 
     # 3. 直链 mp3 —— 直接下载
     @handle("music.126.net", r"https?://[^/]*music\.126\.net/.*\.mp3(?:\?.*)?$")
     async def _parse_direct_mp3(self, searched: Match[str]):
         url = searched.group(0)  # 整条 url
         audio = self.create_audio_content(url)
-        return self.result(
-            title="网易云音乐",
+        await self.send_desc_common(
+            "网易云音乐",
+            None,
+            [],
             text="直链音频",
-            contents=[audio],
             url=url,
         )
+        return self.parse_result([audio])
 
     @handle(
         "music.163.com/song/media/outer/url",
@@ -105,9 +107,11 @@ class NCMParser(BaseParser):
         private_url = searched.group(0)
         print(private_url)
         audio = self.create_audio_content(private_url)
-        return self.result(
-            title="网易云音乐（私人直链）",
+        await self.send_desc_common(
+            "网易云音乐（私人直链）",
+            None,
+            [],
             text="直链音频",
-            contents=[audio],
             url=private_url,
         )
+        return self.parse_result([audio])

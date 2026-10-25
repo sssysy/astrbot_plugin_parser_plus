@@ -2,36 +2,43 @@
 
 from abc import ABC
 from asyncio import Task, TimeoutError, sleep
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from contextvars import ContextVar
 from pathlib import Path
 from re import Match, Pattern, compile
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
-from typing_extensions import Unpack
 
 from ..config import ParserItem, PluginConfig
 from ..constants import ANDROID_HEADER, COMMON_HEADER, IOS_HEADER
 from ..data import (
     AudioContent,
     Author,
+    ContentItem,
+    Description,
     DynamicContent,
     FileContent,
     GraphicsContent,
     ImageContent,
-    ParseResult,
-    ParseResultKwargs,
+    MediaContent,
     Platform,
+    TextContent,
     VideoContent,
 )
 from ..download import Downloader
 from ..exception import ParseException, RedirectException
 
 T = TypeVar("T", bound="BaseParser")
-HandlerFunc = Callable[[T, Match[str]], Coroutine[Any, Any, ParseResult]]
+HandlerFunc = Callable[[T, Match[str]], Coroutine[Any, Any, list[MediaContent]]]
+DescriptionSink = Callable[[Description], Awaitable[None]]
 KeyPatterns = list[tuple[str, Pattern[str]]]
 
 _KEY_PATTERNS = "_key_patterns"
+_DESCRIPTION_SINK: ContextVar[DescriptionSink | None] = ContextVar(
+    "parser_description_sink",
+    default=None,
+)
 
 
 # 注册处理器装饰器
@@ -128,26 +135,25 @@ class BaseParser:
             await self._session.close()
             self._session = None
 
-    async def parse(self, keyword: str, searched: Match[str]) -> ParseResult:
-        """解析 URL 提取信息
-
-        Args:
-            keyword: 关键词
-            searched: 正则表达式匹配对象，由平台对应的模式匹配得到
-
-        Returns:
-            ParseResult: 解析结果
-
-        Raises:
-            ParseException: 解析失败时抛出
-        """
-        return await self._handlers[keyword](self, searched)
+    async def parse(
+        self,
+        keyword: str,
+        searched: Match[str],
+        desc_sink: DescriptionSink | None = None,
+    ) -> list[MediaContent]:
+        """执行解析，并在需要时发送描述卡片。"""
+        token = _DESCRIPTION_SINK.set(desc_sink) if desc_sink is not None else None
+        try:
+            return await self._handlers[keyword](self, searched)
+        finally:
+            if token is not None:
+                _DESCRIPTION_SINK.reset(token)
 
     async def parse_with_redirect(
         self,
         url: str,
         headers: dict[str, str] | None = None,
-    ) -> ParseResult:
+    ) -> list[MediaContent]:
         """先重定向再解析"""
         redirect_url = await self.get_redirect_url(url, headers=headers or self.headers)
 
@@ -167,10 +173,116 @@ class BaseParser:
                 return keyword, searched
         raise ParseException(f"无法匹配 {url}")
 
-    @classmethod
-    def result(cls, **kwargs: Unpack[ParseResultKwargs]) -> ParseResult:
-        """构建解析结果"""
-        return ParseResult(platform=cls.platform, **kwargs)
+    def parse_result(self, contents: Iterable[ContentItem]) -> list[MediaContent]:
+        """透传最终需要发送的有序内容列表。"""
+        return [
+            TextContent(item) if isinstance(item, str) else item for item in contents
+        ]
+
+    async def _emit_description(self, description: Description) -> None:
+        sink = _DESCRIPTION_SINK.get()
+        if sink is not None:
+            await sink(description)
+
+    @staticmethod
+    def _normalize_desc_contents(
+        contents: Iterable[ContentItem],
+    ) -> tuple[list[MediaContent], str | None]:
+        """把文字和图片组合成按顺序渲染的图文块。"""
+        media: list[MediaContent] = []
+        pending_text: list[str] = []
+
+        for item in contents:
+            if isinstance(item, str):
+                pending_text.append(item)
+                continue
+            if isinstance(item, TextContent):
+                pending_text.append(item.text)
+                continue
+
+            text = "\n".join(pending_text).strip() or None
+            pending_text.clear()
+
+            if isinstance(item, ImageContent):
+                graphics = GraphicsContent(item.path_task, text)
+                graphics._loader = item._loader
+                media.append(graphics)
+            elif isinstance(item, GraphicsContent) and text:
+                graphics = GraphicsContent(
+                    item.path_task,
+                    text=f"{text}\n{item.text}" if item.text else text,
+                    alt=item.alt,
+                )
+                graphics._loader = item._loader
+                media.append(graphics)
+            else:
+                if text:
+                    media.append(TextContent(text))
+                media.append(item)
+
+        trailing_text = "\n".join(pending_text).strip() or None
+        return media, trailing_text
+
+    async def send_desc_common(
+        self,
+        title: str | None,
+        author: Author | None,
+        contents: Iterable[ContentItem],
+        *,
+        text: str | None = None,
+        timestamp: int | None = None,
+        url: str | None = None,
+        extra: dict[str, Any] | None = None,
+        repost: Description | None = None,
+    ) -> None:
+        """发送通用描述卡片。"""
+        if _DESCRIPTION_SINK.get() is None:
+            return
+        card_contents, trailing_text = self._normalize_desc_contents(contents)
+        description = Description(
+            platform=self.platform,
+            title=title,
+            author=author,
+            text="\n".join(part for part in (text, trailing_text) if part) or None,
+            timestamp=timestamp,
+            url=url,
+            contents=card_contents,
+            extra=extra or {},
+            repost=repost,
+        )
+        await self._emit_description(description)
+
+    async def send_desc_video(
+        self,
+        title: str | None,
+        author: Author | None,
+        *,
+        cover: str | Path | Task[Path] | None = None,
+        duration: float = 0.0,
+        text: str | None = None,
+        timestamp: int | None = None,
+        url: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """发送视频描述卡片。"""
+        if _DESCRIPTION_SINK.get() is None:
+            return
+        cover_task = cover
+        if isinstance(cover, str):
+            cover_task = self.downloader.download_img(
+                cover, headers=self.headers, proxy=self.proxy
+            )
+        description = Description(
+            platform=self.platform,
+            title=title,
+            author=author,
+            text=text,
+            timestamp=timestamp,
+            url=url,
+            contents=[VideoContent(Path("."), cover_task, duration)],
+            extra=extra or {},
+        )
+        await self._emit_description(description)
 
     async def get_redirect_url(
         self,
@@ -254,9 +366,18 @@ class BaseParser:
                 cover_url, headers=headers or self.headers, proxy=self.proxy
             )
         if isinstance(url_or_task, str):
-            url_or_task = self.downloader.download_video(
-                url_or_task, headers=headers or self.headers, proxy=self.proxy
-            )
+            url = url_or_task
+            request_headers = headers or self.headers
+            proxy = self.proxy
+            content = VideoContent(None, cover_task, duration)
+
+            async def load_video() -> Path:
+                return await self.downloader.download_video(
+                    url, headers=request_headers, proxy=proxy
+                )
+
+            content.set_loader(load_video)
+            return content
 
         return VideoContent(url_or_task, cover_task, duration)
 
@@ -275,6 +396,23 @@ class BaseParser:
             )
         return VideoContent(path_task, cover_task, duration)
 
+    def create_video_content_by_loader(
+        self,
+        loader: Callable[[], Awaitable[Path]],
+        cover_url: str | None = None,
+        duration: float = 0.0,
+        headers: dict[str, str] | None = None,
+    ) -> VideoContent:
+        """创建延迟下载的视频内容。"""
+        cover_task = None
+        if cover_url:
+            cover_task = self.downloader.download_img(
+                cover_url, headers=headers or self.headers, proxy=self.proxy
+            )
+        content = VideoContent(None, cover_task, duration)
+        content.set_loader(loader)
+        return content
+
     def create_image_contents(
         self,
         image_urls: list[str],
@@ -282,11 +420,18 @@ class BaseParser:
     ):
         """创建图片内容列表"""
         contents: list[ImageContent] = []
+        request_headers = headers or self.headers
+        proxy = self.proxy
         for url in image_urls:
-            task = self.downloader.download_img(
-                url, headers=headers or self.headers, proxy=self.proxy
-            )
-            contents.append(ImageContent(task))
+            content = ImageContent()
+
+            async def load_image(current_url: str = url) -> Path:
+                return await self.downloader.download_img(
+                    current_url, headers=request_headers, proxy=proxy
+                )
+
+            content.set_loader(load_image)
+            contents.append(content)
         return contents
 
     def create_dynamic_contents(
@@ -296,11 +441,18 @@ class BaseParser:
     ):
         """创建动态图片内容列表"""
         contents: list[DynamicContent] = []
+        request_headers = headers or self.headers
+        proxy = self.proxy
         for url in dynamic_urls:
-            task = self.downloader.download_video(
-                url, headers=headers or self.headers, proxy=self.proxy
-            )
-            contents.append(DynamicContent(task))
+            content = DynamicContent()
+
+            async def load_dynamic(current_url: str = url) -> Path:
+                return await self.downloader.download_video(
+                    current_url, headers=request_headers, proxy=proxy
+                )
+
+            content.set_loader(load_dynamic)
+            contents.append(content)
         return contents
 
     def create_audio_content(
@@ -311,9 +463,18 @@ class BaseParser:
     ):
         """创建音频内容"""
         if isinstance(url_or_task, str):
-            url_or_task = self.downloader.download_audio(
-                url_or_task, headers=headers or self.headers, proxy=self.proxy
-            )
+            url = url_or_task
+            request_headers = headers or self.headers
+            proxy = self.proxy
+            content = AudioContent(None, duration)
+
+            async def load_audio() -> Path:
+                return await self.downloader.download_audio(
+                    url, headers=request_headers, proxy=proxy
+                )
+
+            content.set_loader(load_audio)
+            return content
 
         return AudioContent(url_or_task, duration)
 
@@ -325,10 +486,17 @@ class BaseParser:
         headers: dict[str, str] | None = None,
     ):
         """创建图文内容 图片不能为空 文字可空 渲染时文字在前 图片在后"""
-        image_task = self.downloader.download_img(
-            image_url, headers=headers or self.headers, proxy=self.proxy
-        )
-        return GraphicsContent(image_task, text, alt)
+        content = GraphicsContent(None, text, alt)
+        request_headers = headers or self.headers
+        proxy = self.proxy
+
+        async def load_image() -> Path:
+            return await self.downloader.download_img(
+                image_url, headers=request_headers, proxy=proxy
+            )
+
+        content.set_loader(load_image)
+        return content
 
     def create_file_content(
         self,
@@ -338,11 +506,20 @@ class BaseParser:
     ):
         """创建文件内容"""
         if isinstance(url_or_task, str):
-            url_or_task = self.downloader.download_file(
-                url_or_task,
-                headers=headers or self.headers,
-                file_name=name,
-                proxy=self.proxy,
-            )
+            url = url_or_task
+            request_headers = headers or self.headers
+            proxy = self.proxy
+            content = FileContent(None, name)
 
-        return FileContent(url_or_task)
+            async def load_file() -> Path:
+                return await self.downloader.download_file(
+                    url,
+                    headers=request_headers,
+                    file_name=name,
+                    proxy=proxy,
+                )
+
+            content.set_loader(load_file)
+            return content
+
+        return FileContent(url_or_task, name)

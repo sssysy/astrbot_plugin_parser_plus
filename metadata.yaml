@@ -1,0 +1,8 @@
+name: astrbot_plugin_parser_plus
+display_name: PLUS 解析器
+desc: 施工
+help: 略
+version: v0.1.0
+author: sssysy
+repo: https://github.com/sssysy/astrbot_plugin_parser_plus
+

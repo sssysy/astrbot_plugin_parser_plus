@@ -1,5 +1,6 @@
 # main.py
 
+import asyncio
 import re
 
 from astrbot.api import logger
@@ -19,6 +20,7 @@ from .core.config import PluginConfig
 from .core.debounce import Debouncer
 from .core.download import Downloader
 from .core.parsers import BaseParser, BilibiliParser
+from .core.playwright_install import install_playwright_chromium
 from .core.render import Renderer
 from .core.sender import MessageSender
 from .core.utils import extract_json_url
@@ -36,6 +38,8 @@ class ParserPlugin(Star):
             self.downloader,
             remote_renderer=self.html_render,
         )
+        # Playwright Chromium 安装任务锁
+        self._playwright_install_lock = asyncio.Lock()
         # 防抖器
         self.debouncer = Debouncer(self.cfg)
         # 仲裁器
@@ -251,6 +255,49 @@ class ParserPlugin(Star):
         umo = event.unified_msg_origin
         self.cfg.add_blacklist(umo)
         yield event.plain_result("当前会话的解析已关闭")
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("安装playwright")
+    async def install_playwright(self, event: AstrMessageEvent):
+        """安装本地卡片渲染所需的 Playwright Chromium。"""
+        if self._playwright_install_lock.locked():
+            yield event.plain_result("Playwright Chromium 正在安装，请勿重复执行。")
+            return
+
+        async with self._playwright_install_lock:
+            yield event.plain_result(
+                "正在安装 Playwright Chromium，下载时间可能较长，请稍候..."
+            )
+            result = await install_playwright_chromium()
+
+        if result.ok:
+            logger.info("[渲染] Playwright Chromium 安装完成")
+            yield event.plain_result(
+                "Playwright Chromium 安装完成，可直接重试卡片渲染。"
+            )
+            return
+
+        logger.error(
+            "[渲染] Playwright Chromium 安装失败 | "
+            f"timed_out={result.timed_out} | "
+            f"returncode={result.returncode} | "
+            f"error_type={result.error_type or 'ProcessError'} | "
+            f"output={result.output[-1000:]!r}"
+        )
+        if result.timed_out:
+            yield event.plain_result(
+                "Playwright Chromium 安装超时，请检查网络后重试。"
+            )
+        elif result.error_type:
+            yield event.plain_result(
+                f"无法启动 Playwright 安装程序（{result.error_type}），"
+                "请检查插件依赖。"
+            )
+        else:
+            yield event.plain_result(
+                f"Playwright Chromium 安装失败（退出码 {result.returncode}），"
+                "请查看 AstrBot 日志。"
+            )
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("登录B站", alias={"blogin", "登录b站"})

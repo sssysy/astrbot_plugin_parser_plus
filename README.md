@@ -45,6 +45,8 @@ pip install -r astrbot_plugin_parser_plus/requirements.txt
 python -m playwright install chromium
 ```
 
+插件启动后，也可以由管理员在会话中发送 `安装playwright`，由插件执行相同安装操作。
+
 如果不使用本地渲染，可在插件配置中关闭“使用本地 Playwright 渲染卡片”，改由 AstrBot 配置的远程 T2I 服务渲染卡片。
 
 安装完成后重启 AstrBot。若插件市场已经自动安装依赖，无需重复执行 `pip install`。
@@ -72,6 +74,16 @@ python -m playwright install chromium
 | `登录B站` / `blogin` / `登录b站` | 扫码登录 B站，用于下载高画质视频或访问登录内容 |
 
 > 使用前需确保已启用 B站解析器。登录凭证会保存在插件数据目录，请勿公开或提交到仓库。
+
+</details>
+
+<details><summary>本地渲染</summary>
+
+| 命令 | 说明 |
+| :--- | :--- |
+| `安装playwright` | 为本地卡片渲染下载并安装 Playwright Chromium 运行时 |
+
+> 安装过程可能需要数分钟。安装成功后无需重启插件，可直接重试链接解析。
 
 </details>
 

@@ -138,6 +138,8 @@ class Renderer:
             "text": description.text,
             "url": description.url,
             "extra_info": description.extra_info,
+            "timestamp": description.timestamp,
+            "formatted_datetime": description.formatted_datetime("%Y-%m-%d %H:%M"),
             "blocks": await self._content_blocks(description.contents),
             "author": await self._author_context(description.author),
             "metrics": await self._metrics_context(description.metrics),

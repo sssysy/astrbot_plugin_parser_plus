@@ -1,3 +1,7 @@
 __pycache__/
 core/test/
 /tests
+data/
+docs/
+tests/
+.pytest_cache/

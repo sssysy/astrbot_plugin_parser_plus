@@ -69,8 +69,10 @@ class DouyinParser(BaseParser):
         return hostname == "iesdouyin.com" or hostname.endswith(".iesdouyin.com")
 
     def _has_ttwid(self) -> bool:
-        cookies = self.cookiejar.get(domain="iesdouyin.com") or {}
-        return bool(cookies.get("ttwid"))
+        cookie_header = self.cookiejar.get_cookie_header_for_url(
+            "https://www.iesdouyin.com/"
+        )
+        return "ttwid=" in cookie_header
 
     # https://v.douyin.com/_2ljF4AmKL8
     @handle("v.douyin", r"v\.douyin\.com/[a-zA-Z0-9_\-]+")
@@ -211,7 +213,8 @@ class DouyinParser(BaseParser):
                 if resp.status >= 400:
                     raise ParseException("抖音 ttwid 注册失败")
                 self.cookiejar.update_from_response(
-                    resp.headers.getall("Set-Cookie", [])
+                    resp.headers.getall("Set-Cookie", []),
+                    request_url=self.TTWID_REGISTER_URL,
                 )
                 self._set_cookies()
                 body = await resp.json(content_type=None)
@@ -220,6 +223,14 @@ class DouyinParser(BaseParser):
         callback_url = body.get("redirect_url") if isinstance(body, dict) else None
         if callback_url:
             callback_headers = self._sync_headers_for_url(callback_url)
+            register_cookie = self.cookiejar.get_cookie_header(
+                domain="ttwid.bytedance.com"
+            )
+            if register_cookie:
+                existing_cookie = callback_headers.get("Cookie")
+                callback_headers["Cookie"] = "; ".join(
+                    part for part in (register_cookie, existing_cookie) if part
+                )
             callback_headers["Referer"] = "https://www.douyin.com/"
             try:
                 async with self.session.get(
@@ -228,13 +239,17 @@ class DouyinParser(BaseParser):
                     if resp.status >= 400:
                         raise ParseException("抖音 ttwid 回调失败")
                     self.cookiejar.update_from_response(
-                        resp.headers.getall("Set-Cookie", [])
+                        resp.headers.getall("Set-Cookie", []),
+                        request_url=callback_url,
                     )
                     self._set_cookies()
             except (ClientError, TimeoutError) as exc:
                 raise ParseException("抖音 ttwid 回调失败") from exc
         if not self._has_ttwid():
-            raise ParseException("抖音 ttwid 注册未返回 Cookie")
+            raise ParseException(
+                "抖音 ttwid 注册未返回 iesdouyin.com Cookie；"
+                "请检查网络代理、Cookie 配置或稍后重试"
+            )
 
     async def parse_with_redirect(self, url: str) -> list[MediaContent]:
         headers = self._sync_headers_for_url(url)

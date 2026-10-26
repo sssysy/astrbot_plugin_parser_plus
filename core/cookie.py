@@ -38,7 +38,7 @@ class Cookie:
 
         return self._path_matches(path)
 
-    def _domain_matches(self, request_domain: str) -> bool:
+    def domain_matches(self, request_domain: str) -> bool:
         cookie_domain = self.domain
 
         if cookie_domain.startswith("."):
@@ -46,6 +46,9 @@ class Cookie:
             return request_domain == suffix or request_domain.endswith(f".{suffix}")
 
         return request_domain == cookie_domain
+
+    def _domain_matches(self, request_domain: str) -> bool:
+        return self.domain_matches(request_domain)
 
     def _path_matches(self, request_path: str) -> bool:
         if request_path == self.path:
@@ -257,6 +260,7 @@ class CookieJar:
             domain, include_subdomains, path, secure, expires_at, name, value = parsed
 
             if include_subdomains.upper() == "TRUE":
+                domain = domain.lower()
                 if not domain.startswith("."):
                     domain = f".{domain}"
             else:
@@ -330,9 +334,17 @@ class CookieJar:
 
     # ---------------- update from response ----------------
 
-    def update_from_response(self, set_cookie_headers: list[str]) -> None:
+    def update_from_response(
+        self,
+        set_cookie_headers: list[str],
+        *,
+        request_url: str | None = None,
+    ) -> None:
         if not set_cookie_headers:
             return
+
+        request_host = urlparse(request_url).hostname if request_url else None
+        default_domain = f".{request_host or self.domain}"
 
         logger.debug(
             f"开始更新 cookies，收到 {len(set_cookie_headers)} 个 Set-Cookie 头"
@@ -356,7 +368,9 @@ class CookieJar:
             for name, morsel in sc.items():
                 value = morsel.value
                 path = morsel["path"] or "/"
-                domain = morsel["domain"] or f".{self.domain}"
+                domain = morsel["domain"] or default_domain
+                if not domain.startswith("."):
+                    domain = f".{domain}"
                 secure = bool(morsel["secure"])
 
                 expires = 0

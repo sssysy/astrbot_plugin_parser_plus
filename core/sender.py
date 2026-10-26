@@ -30,6 +30,7 @@ from .data import (
 from .exception import (
     DownloadException,
     DurationLimitException,
+    ParseException,
     RedirectException,
     SizeLimitException,
     ZeroSizeException,
@@ -40,6 +41,8 @@ from .utils import transcode_video_audio_to_lc
 
 class MessageSender:
     """负责发送描述卡片和最终解析内容，不参与平台解析。"""
+
+    USER_ERROR_MAX_LENGTH = 300
 
     def __init__(self, config: PluginConfig, renderer: Renderer):
         self.cfg = config
@@ -86,7 +89,7 @@ class MessageSender:
                 f"platform={description.platform.name} | "
                 f"title={description.title or '<empty>'} | "
                 f"error_type={type(exc).__name__} | "
-                f"error={self._safe_exception_text(exc)}"
+                f"error={self.safe_exception_text(exc)}"
             )
             return False
 
@@ -116,7 +119,7 @@ class MessageSender:
             logger.error(
                 "[发送] 解析结果发送失败 | "
                 f"error_type={type(exc).__name__} | "
-                f"error={self._safe_exception_text(exc)} | "
+                f"error={self.safe_exception_text(exc)} | "
                 f"segments={seg_meta}"
             )
             return False
@@ -191,7 +194,7 @@ class MessageSender:
         return "网络或服务异常"
 
     @staticmethod
-    def _safe_exception_text(exc: Exception) -> str:
+    def safe_exception_text(exc: Exception) -> str:
         text = str(exc).strip() or "<empty>"
 
         def redact_url(match: re.Match[str]) -> str:
@@ -206,6 +209,30 @@ class MessageSender:
                 return "<url>"
 
         return re.sub(r"https?://[^\s]+", redact_url, text)
+
+    @classmethod
+    def format_user_error(cls, exc: Exception) -> str:
+        """把异常转换为可安全发送给用户的简短提示。"""
+        if not isinstance(exc, ParseException):
+            return "解析失败，请稍后重试。"
+
+        detail = " ".join(cls.safe_exception_text(exc).split())
+        if len(detail) > cls.USER_ERROR_MAX_LENGTH:
+            detail = f"{detail[: cls.USER_ERROR_MAX_LENGTH - 3]}..."
+        return f"解析失败：{detail}"
+
+    async def send_error(self, event: AstrMessageEvent, message: str) -> bool:
+        """向当前会话发送纯文本错误提示。"""
+        try:
+            await event.send(event.chain_result([Plain(message)]))
+            return True
+        except Exception as exc:
+            logger.error(
+                "[发送] 错误提示发送失败 | "
+                f"error_type={type(exc).__name__} | "
+                f"error={self.safe_exception_text(exc)}"
+            )
+            return False
 
     def _append_content_failure(
         self,
@@ -222,7 +249,7 @@ class MessageSender:
             "[发送] 媒体处理失败 | "
             f"content={type(content).__name__} | "
             f"error_type={type(exc).__name__} | "
-            f"error={self._safe_exception_text(exc)}"
+            f"error={self.safe_exception_text(exc)}"
         )
 
     def _merge_segments_if_needed(

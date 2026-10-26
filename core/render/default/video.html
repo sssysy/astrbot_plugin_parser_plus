@@ -3,21 +3,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <style>
     :root {
-      --ink: #17191d;
-      --muted: #6d737b;
-      --soft: #8a9098;
-      --card: #f5f6f8;
-      --glass: rgba(255, 255, 255, .58);
-      --line: rgba(23, 25, 29, .08);
+      --bg: #08090b;
+      --panel: rgba(255, 255, 255, .055);
+      --ink: #f7f7f5;
+      --muted: rgba(247, 247, 245, .62);
+      --soft: rgba(247, 247, 245, .4);
+      --line: rgba(255, 255, 255, .11);
+      /* 与 KKK 模板相同的上下淡入淡出停靠点。 */
+      --cover-mask:
+        linear-gradient(to bottom,
+          transparent 0%,
+          rgba(0, 0, 0, .08) 6%,
+          rgba(0, 0, 0, .32) 16%,
+          rgba(0, 0, 0, .68) 28%,
+          black 42%,
+          black 58%,
+          rgba(0, 0, 0, .68) 72%,
+          rgba(0, 0, 0, .32) 84%,
+          rgba(0, 0, 0, .08) 94%,
+          transparent 100%);
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: #fff; }
+    html, body { margin: 0; padding: 0; background: var(--bg); }
     body {
       width: 1000px;
       color: var(--ink);
-      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+      font-family: "HarmonyOS Sans SC", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
     }
@@ -25,153 +39,349 @@
       position: relative;
       isolation: isolate;
       width: 1000px;
-      min-height: 320px;
+      min-height: 360px;
       overflow: hidden;
       border-radius: 0;
+      background: var(--bg);
+    }
+    .ambient {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
       background:
-        linear-gradient(150deg, rgba(113, 177, 244, .20), transparent 38%),
-        linear-gradient(330deg, rgba(244, 164, 184, .16), transparent 42%),
-        var(--card);
+        radial-gradient(circle at 8% 8%, rgba(37, 244, 238, .10), transparent 28%),
+        radial-gradient(circle at 90% 28%, rgba(254, 44, 85, .11), transparent 30%),
+        var(--bg);
     }
-    .ambient-fallback {
-      display: none;
+    .ambient-cover {
+      position: absolute;
+      inset: -100px;
+      width: calc(100% + 200px);
+      height: calc(100% + 200px);
+      object-fit: cover;
+      opacity: .2;
     }
-    .shell { position: relative; z-index: 2; }
+    .ambient-wash {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(8, 9, 11, .48) 0%, rgba(8, 9, 11, .82) 42%, var(--bg) 88%),
+        radial-gradient(circle at 50% 20%, transparent 0%, rgba(0, 0, 0, .36) 72%);
+    }
+    .ambient-grid {
+      position: absolute;
+      inset: 0;
+      opacity: .22;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px);
+      background-size: 38px 38px;
+    }
+    .shell {
+      position: relative;
+      z-index: 2;
+      padding: 38px 42px 34px;
+    }
+    .topbar {
+      display: flex;
+      min-height: 82px;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .creator {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 18px;
+    }
+    .avatar, .avatar-placeholder {
+      width: 80px;
+      height: 80px;
+      flex: 0 0 80px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 50%;
+      object-fit: cover;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, .34);
+    }
+    .avatar-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, .88);
+      font-size: 31px;
+      font-weight: 800;
+      background: linear-gradient(145deg, #34363d, #15161a);
+    }
+    .creator-main { min-width: 0; }
+    .creator-kicker {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 750;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .creator-kicker img {
+      width: 20px;
+      height: 20px;
+      object-fit: contain;
+      opacity: .9;
+    }
+    .creator-name {
+      max-width: 490px;
+      overflow: hidden;
+      color: var(--ink);
+      font-size: 28px;
+      font-weight: 780;
+      line-height: 1.22;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .creator-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px 14px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .creator-meta span {
+      overflow: hidden;
+      max-width: 360px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .creator-meta .dot {
+      width: 3px;
+      height: 3px;
+      flex: 0 0 3px;
+      border-radius: 50%;
+      background: var(--soft);
+    }
+    .signal-strip {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: flex-start;
+      justify-content: flex-end;
+      gap: 20px;
+      padding-top: 5px;
+    }
+    .signal {
+      min-width: 54px;
+      text-align: center;
+    }
+    .signal-head {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .signal-icon, .signal-glyph {
+      width: 17px;
+      height: 17px;
+      flex: 0 0 17px;
+      object-fit: contain;
+      opacity: .78;
+    }
+    .signal-glyph { color: rgba(255, 255, 255, .72); }
+    .signal-value {
+      margin-top: 6px;
+      color: var(--ink);
+      font-size: 21px;
+      font-weight: 750;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .platform-mark {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 10px;
+      margin-top: 3px;
+      padding: 9px 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 750;
+      letter-spacing: .04em;
+      background: rgba(255, 255, 255, .045);
+    }
+    .platform-mark img {
+      width: 22px;
+      height: 22px;
+      object-fit: contain;
+    }
     .hero {
       position: relative;
-      width: 100%;
+      width: calc(100% + 84px);
+      margin-top: 26px;
+      margin-right: -42px;
+      margin-left: -42px;
       overflow: hidden;
-      background: #dce0e5;
+      background: transparent;
     }
     .cover-frame {
       position: relative;
       width: 100%;
-      aspect-ratio: 16 / 9;
       overflow: hidden;
-      background: #dce0e5;
+      line-height: 0;
+      background: transparent;
     }
     .cover {
       display: block;
       width: 100%;
-      height: 100%;
-      object-fit: cover;
+      height: auto;
+      object-fit: contain;
+      -webkit-mask-image: var(--cover-mask);
+      mask-image: var(--cover-mask);
+      -webkit-mask-size: 100% 100%;
+      mask-size: 100% 100%;
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
     }
     .cover-placeholder {
       display: flex;
       width: 100%;
-      height: 100%;
+      min-height: 320px;
       align-items: center;
       justify-content: center;
-      gap: 18px;
-      color: #616871;
-      font-size: 26px;
-      font-weight: 800;
+      gap: 17px;
+      color: rgba(255, 255, 255, .66);
+      font-size: 25px;
+      font-weight: 780;
       letter-spacing: .02em;
+      line-height: 1.4;
       background:
-        radial-gradient(circle at 30% 20%, rgba(255,255,255,.66), transparent 42%),
-        linear-gradient(145deg, #e9edf1, #dfe4e9);
+        linear-gradient(130deg, rgba(37, 244, 238, .06), transparent 36%),
+        linear-gradient(310deg, rgba(254, 44, 85, .08), transparent 38%),
+        #14161a;
+      -webkit-mask-image: var(--cover-mask);
+      mask-image: var(--cover-mask);
+      -webkit-mask-size: 100% 100%;
+      mask-size: 100% 100%;
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
     }
-    .cover-placeholder img { width: 76px; max-height: 54px; object-fit: contain; opacity: .75; }
-    .cover-shade {
-      position: absolute;
-      inset: 0;
-      background:
-        linear-gradient(to bottom, rgba(8, 10, 13, .06) 0%, transparent 34%, rgba(8, 10, 13, .10) 72%, rgba(8, 10, 13, .54) 100%),
-        linear-gradient(to top, rgba(245, 246, 248, .20), transparent 20%);
+    .cover-placeholder img {
+      width: 72px;
+      max-height: 52px;
+      object-fit: contain;
+      opacity: .78;
     }
-    .platform-badge {
+    .hero-top, .hero-bottom {
       position: absolute;
-      top: 26px;
-      left: 28px;
+      right: 0;
+      left: 0;
+      z-index: 3;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 22px;
+    }
+    .hero-top { top: 42px; }
+    .hero-bottom { bottom: 42px; align-items: flex-end; }
+    .hero-pill {
       display: inline-flex;
       max-width: 330px;
       align-items: center;
-      gap: 10px;
-      padding: 9px 14px 9px 11px;
+      gap: 9px;
+      padding: 8px 12px;
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, .24);
+      border: 1px solid rgba(255, 255, 255, .16);
       border-radius: 999px;
-      color: #fff;
-      background: rgba(11, 14, 18, .48);
-      box-shadow: 0 8px 28px rgba(0, 0, 0, .16);
-    }
-    .platform-badge img { display: block; width: 27px; height: 27px; object-fit: contain; }
-    .platform-badge .platform-name {
-      overflow: hidden;
-      font-size: 15px;
-      font-weight: 800;
+      color: rgba(255, 255, 255, .9);
+      font-size: 14px;
+      font-weight: 750;
       letter-spacing: .04em;
+      background: rgba(7, 8, 10, .54);
+    }
+    .hero-pill img {
+      width: 21px;
+      height: 21px;
+      object-fit: contain;
+    }
+    .hero-pill span {
+      overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .play-chip {
-      position: absolute;
-      right: 28px;
-      bottom: 26px;
+    .facts {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 7px;
+    }
+    .fact {
+      padding: 7px 11px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 999px;
+      color: rgba(255, 255, 255, .88);
+      font-size: 13px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      background: rgba(7, 8, 10, .5);
+    }
+    .duration-pill {
       display: inline-flex;
       align-items: center;
-      gap: 11px;
-      padding: 11px 16px 11px 12px;
-      border: 1px solid rgba(255, 255, 255, .24);
+      gap: 9px;
+      padding: 10px 14px 10px 11px;
+      border: 1px solid rgba(255, 255, 255, .18);
       border-radius: 999px;
-      color: #fff;
-      font-size: 20px;
-      font-weight: 800;
+      color: rgba(255, 255, 255, .94);
+      font-size: 18px;
+      font-weight: 750;
       font-variant-numeric: tabular-nums;
       letter-spacing: .02em;
-      background: rgba(11, 14, 18, .52);
-      box-shadow: 0 8px 30px rgba(0, 0, 0, .2);
+      background: rgba(7, 8, 10, .58);
     }
-    .play-icon {
+    .duration-pill svg { width: 17px; height: 17px; opacity: .72; }
+    .play-orb {
       display: flex;
-      width: 31px;
-      height: 31px;
+      width: 60px;
+      height: 60px;
       align-items: center;
       justify-content: center;
+      border: 1px solid rgba(255, 255, 255, .24);
       border-radius: 50%;
-      color: #101216;
-      background: rgba(255, 255, 255, .94);
+      color: rgba(255, 255, 255, .92);
+      background: rgba(7, 8, 10, .38);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, .26);
     }
-    .play-icon svg { display: block; width: 14px; height: 14px; margin-left: 2px; }
-    .content { padding: 36px 42px 42px; }
+    .play-orb svg { width: 22px; height: 22px; margin-left: 3px; }
+    .content { padding-top: 6px; }
     .title {
       margin: 0;
       color: var(--ink);
       font-size: 43px;
-      line-height: 1.34;
-      font-weight: 850;
-      letter-spacing: -.015em;
+      line-height: 1.28;
+      font-weight: 790;
+      letter-spacing: -.018em;
       word-break: break-word;
     }
-    .meta-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 22px;
-      margin-top: 20px;
-      color: var(--soft);
-      font-size: 16px;
-      font-weight: 650;
-    }
-    .date-line { display: inline-flex; min-width: 0; align-items: center; gap: 8px; }
-    .date-line svg { flex: 0 0 auto; width: 17px; height: 17px; opacity: .62; }
-    .facts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
-    .fact {
-      padding: 6px 11px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      color: #555c65;
-      font-size: 14px;
-      font-weight: 750;
-      line-height: 1;
-      background: rgba(255, 255, 255, .44);
-    }
-    .body-copy { margin-top: 27px; }
+    .body-copy { margin-top: 22px; }
     .body-text {
       margin: 0;
-      color: #404650;
+      color: rgba(247, 247, 245, .72);
       font-size: 22px;
-      font-weight: 500;
+      font-weight: 480;
       line-height: 1.72;
       white-space: pre-wrap;
       word-break: break-word;
@@ -180,161 +390,215 @@
       display: block;
       width: 100%;
       margin: 22px 0 0;
-      border-radius: 20px;
-      box-shadow: 0 10px 30px rgba(27, 32, 39, .10);
+      border: 1px solid var(--line);
+      border-radius: 22px;
       object-fit: cover;
     }
     .graphics-text {
-      margin: 25px 0 0;
-      color: #404650;
+      margin: 24px 0 0;
+      color: rgba(247, 247, 245, .72);
       font-size: 21px;
-      line-height: 1.72;
+      line-height: 1.7;
       white-space: pre-wrap;
     }
     .graphics-alt {
       margin-top: 10px;
       color: var(--soft);
-      font-size: 15px;
+      font-size: 14px;
       line-height: 1.5;
       text-align: center;
     }
     .extra-info {
-      margin-top: 25px;
+      margin-top: 24px;
       padding: 18px 20px;
       border: 1px solid var(--line);
       border-radius: 18px;
-      color: #555c65;
+      color: var(--muted);
       font-size: 16px;
       line-height: 1.7;
       white-space: pre-wrap;
-      background: rgba(255, 255, 255, .36);
+      background: var(--panel);
     }
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
-      gap: 0;
-      margin-top: 34px;
-      padding: 22px 8px;
-      border-top: 1px solid var(--line);
-      border-bottom: 1px solid var(--line);
-    }
-    .metric { min-width: 0; padding: 0 20px; border-left: 1px solid var(--line); }
-    .metric:first-child { border-left: 0; padding-left: 8px; }
-    .metric-head {
-      display: flex;
-      min-width: 0;
-      align-items: center;
-      gap: 7px;
-      color: var(--muted);
-      font-size: 14px;
-      font-weight: 700;
-    }
-    .metric-icon { width: 18px; height: 18px; object-fit: contain; opacity: .82; }
-    .metric-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .metric-value {
-      margin-top: 7px;
-      color: #24282e;
-      font-size: 27px;
-      line-height: 1.1;
-      font-weight: 850;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -.02em;
-    }
-    .author-card {
+    .profile {
       display: flex;
       align-items: center;
       gap: 17px;
-      margin-top: 32px;
-      padding: 19px 20px;
-      border: 1px solid rgba(255, 255, 255, .66);
+      margin-top: 30px;
+      padding: 20px 22px;
+      border: 1px solid var(--line);
       border-radius: 24px;
-      background: rgba(255, 255, 255, .45);
-      box-shadow: 0 12px 34px rgba(39, 45, 53, .055);
+      background:
+        linear-gradient(110deg, rgba(255, 255, 255, .075), rgba(255, 255, 255, .035)),
+        rgba(8, 9, 11, .42);
     }
-    .author-avatar, .author-avatar-placeholder {
-      width: 66px;
-      height: 66px;
-      flex: 0 0 66px;
+    .profile-avatar, .profile-avatar-placeholder {
+      width: 64px;
+      height: 64px;
+      flex: 0 0 64px;
+      border: 1px solid rgba(255, 255, 255, .14);
       border-radius: 50%;
       object-fit: cover;
-      box-shadow: 0 7px 20px rgba(25, 30, 37, .14);
     }
-    .author-avatar-placeholder {
+    .profile-avatar-placeholder {
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
-      font-size: 27px;
-      font-weight: 850;
-      background: linear-gradient(145deg, #8d959e, #5e6670);
+      color: var(--ink);
+      font-size: 25px;
+      font-weight: 800;
+      background: linear-gradient(145deg, #383b43, #17191d);
     }
-    .author-main { min-width: 0; }
-    .author-name {
+    .profile-main { min-width: 0; }
+    .profile-name {
       overflow: hidden;
-      color: #22262c;
-      font-size: 23px;
-      font-weight: 850;
-      line-height: 1.28;
+      color: var(--ink);
+      font-size: 22px;
+      font-weight: 780;
+      line-height: 1.25;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .author-note {
+    .profile-note {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 5px 13px;
-      margin-top: 7px;
-      color: var(--soft);
+      gap: 5px 12px;
+      margin-top: 6px;
+      color: var(--muted);
       font-size: 14px;
-      line-height: 1.45;
+      line-height: 1.4;
     }
-    .author-note span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .author-metrics {
+    .profile-note span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .profile-metrics {
       display: flex;
       flex: 0 0 auto;
       align-items: center;
       gap: 26px;
       margin-left: auto;
-      padding-left: 16px;
+      padding-left: 18px;
     }
-    .author-metric { min-width: 58px; }
-    .author-metric-head {
+    .profile-metric { min-width: 58px; }
+    .profile-metric-head {
       display: flex;
       align-items: center;
       gap: 5px;
-      color: var(--soft);
+      color: var(--muted);
       font-size: 13px;
-      font-weight: 700;
+      font-weight: 650;
+      line-height: 1.2;
+      white-space: nowrap;
     }
-    .author-metric-icon { width: 15px; height: 15px; object-fit: contain; opacity: .8; }
-    .author-metric-value {
-      margin-top: 5px;
-      color: #343a42;
+    .profile-metric-icon, .profile-metric-glyph {
+      width: 15px;
+      height: 15px;
+      flex: 0 0 15px;
+      object-fit: contain;
+      opacity: .72;
+    }
+    .profile-metric-glyph { color: rgba(255, 255, 255, .66); }
+    .profile-metric-value {
+      margin-top: 6px;
+      color: var(--ink);
       font-size: 19px;
-      font-weight: 850;
+      font-weight: 760;
       font-variant-numeric: tabular-nums;
-      line-height: 1.1;
+      line-height: 1;
+      white-space: nowrap;
     }
     .card-footer {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 22px;
-      margin-top: 25px;
-      color: #9aa0a8;
+      justify-content: flex-end;
+      margin-top: 24px;
+      padding-top: 19px;
+      border-top: 1px solid var(--line);
+      color: var(--soft);
       font-size: 12px;
-      font-weight: 700;
-      letter-spacing: .10em;
-      text-transform: uppercase;
+      font-weight: 650;
+      letter-spacing: .04em;
     }
-    .footer-brand { display: inline-flex; align-items: center; gap: 8px; }
-    .footer-brand img { width: 17px; height: 17px; object-fit: contain; opacity: .62; }
-    .footer-mark { color: #b2b7be; letter-spacing: .16em; }
   </style>
 </head>
 <body>
   <main class="card video-card">
+    <div class="ambient" aria-hidden="true">
+      {% if card.video and card.video.cover %}
+        <img class="ambient-cover" src="{{ card.video.cover }}" alt="">
+      {% endif %}
+      <div class="ambient-wash"></div>
+      <div class="ambient-grid"></div>
+    </div>
+
     <div class="shell">
+      <header class="topbar">
+        <div class="creator">
+          {% if card.author %}
+            {% if card.author.avatar %}
+              <img class="avatar" src="{{ card.author.avatar }}" alt="{{ card.author.name }}">
+            {% else %}
+              <div class="avatar-placeholder">{{ card.author.name[:1] }}</div>
+            {% endif %}
+            <div class="creator-main">
+              <div class="creator-kicker">
+                {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
+                <span>{{ card.platform.display_name }}</span>
+              </div>
+              <div class="creator-name">{{ card.author.name }}</div>
+              {% if card.formatted_datetime or card.author.uid or card.author.description %}
+                <div class="creator-meta">
+                  {% if card.formatted_datetime %}<span>{{ card.formatted_datetime }}</span>{% endif %}
+                  {% if card.author.uid %}
+                    {% if card.formatted_datetime %}<i class="dot"></i>{% endif %}
+                    <span>ID {{ card.author.uid }}</span>
+                  {% endif %}
+                  {% if card.author.description %}<span>{{ card.author.description }}</span>{% endif %}
+                </div>
+              {% endif %}
+            </div>
+          {% else %}
+            <div class="creator-main">
+              <div class="creator-kicker">
+                {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
+                <span>{{ card.platform.display_name }} · VIDEO</span>
+              </div>
+              <div class="creator-name">{{ card.title or '视频作品' }}</div>
+              {% if card.formatted_datetime %}
+                <div class="creator-meta"><span>{{ card.formatted_datetime }}</span></div>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+
+        {% if card.metrics %}
+          <div class="signal-strip">
+            {% for metric in card.metrics %}
+              <div class="signal"{% if loop.index > 4 %} style="display: none;"{% endif %}>
+                <div class="signal-head">
+                  {% if metric.icon %}
+                    <img class="signal-icon" src="{{ metric.icon }}" alt="">
+                  {% else %}
+                    <svg class="signal-glyph" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <circle cx="4" cy="10" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="16" cy="10" r="2"/>
+                    </svg>
+                  {% endif %}
+                  {% if metric.label %}<span>{{ metric.label }}</span>{% endif %}
+                </div>
+                <div class="signal-value">{{ metric.value }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="platform-mark">
+            {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
+            <span>{{ card.platform.display_name }}</span>
+          </div>
+        {% endif %}
+      </header>
+
       <section class="hero">
         <div class="cover-frame">
           {% if card.video and card.video.cover %}
@@ -345,39 +609,36 @@
               <span>{{ card.platform.display_name }} · 视频</span>
             </div>
           {% endif %}
-          <div class="cover-shade"></div>
-          <div class="platform-badge">
-            {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
-            <span class="platform-name">{{ card.platform.display_name }}</span>
+          <div class="hero-top">
+            <div class="hero-pill">
+              {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
+              <span>{{ card.platform.display_name }}</span>
+            </div>
+            {% if card.video and (card.video.quality or card.video.resolution) %}
+              <div class="facts">
+                {% if card.video.quality %}<span class="fact">{{ card.video.quality }}</span>{% endif %}
+                {% if card.video.resolution %}<span class="fact">{{ card.video.resolution }}</span>{% endif %}
+              </div>
+            {% endif %}
           </div>
-          <div class="play-chip">
-            <span class="play-icon" aria-hidden="true">
-              <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.3 2.1a1 1 0 0 1 1.03.05l8.1 5.05a1 1 0 0 1 0 1.7l-8.1 5.05A1 1 0 0 1 3 13V3a1 1 0 0 1 .3-.9Z"/></svg>
-            </span>
-            <span>{{ card.video.duration if card.video and card.video.duration else '视频' }}</span>
+          <div class="hero-bottom">
+            <div class="duration-pill">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+              </svg>
+              <span>{{ card.video.duration if card.video and card.video.duration else '视频' }}</span>
+            </div>
+            <div class="play-orb" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M7.1 4.4a1.4 1.4 0 0 1 1.42.06l10.3 7.6a1.2 1.2 0 0 1 0 1.94l-10.3 7.6A1.4 1.4 0 0 1 6.1 20.3V5.7c0-.58.32-1.1.8-1.3Z"/>
+              </svg>
+            </div>
           </div>
         </div>
       </section>
 
       <section class="content">
         {% if card.title %}<h1 class="title">{{ card.title }}</h1>{% endif %}
-
-        {% if card.formatted_datetime or (card.video and (card.video.quality or card.video.resolution)) %}
-          <div class="meta-row">
-            <div class="date-line">
-              {% if card.formatted_datetime %}
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/><path d="M7 3v2M17 3v2"/>
-                </svg>
-                <span>{{ card.formatted_datetime }}</span>
-              {% endif %}
-            </div>
-            <div class="facts">
-              {% if card.video and card.video.quality %}<span class="fact">{{ card.video.quality }}</span>{% endif %}
-              {% if card.video and card.video.resolution %}<span class="fact">{{ card.video.resolution }}</span>{% endif %}
-            </div>
-          </div>
-        {% endif %}
 
         {% if card.text or card.blocks or card.extra_info %}
           <div class="body-copy">
@@ -397,45 +658,35 @@
           </div>
         {% endif %}
 
-        {% if card.metrics %}
-          <section class="metrics">
-            {% for metric in card.metrics %}
-              <div class="metric">
-                <div class="metric-head">
-                  {% if metric.icon %}<img class="metric-icon" src="{{ metric.icon }}" alt="">{% endif %}
-                  <span>{{ metric.label or '数据' }}</span>
-                </div>
-                <div class="metric-value">{{ metric.value }}</div>
-              </div>
-            {% endfor %}
-          </section>
-        {% endif %}
-
-        {% if card.author %}
-          <section class="author-card">
+        {% if card.author and (card.author.metrics or card.author.uid) %}
+          <section class="profile">
             {% if card.author.avatar %}
-              <img class="author-avatar" src="{{ card.author.avatar }}" alt="{{ card.author.name }}">
+              <img class="profile-avatar" src="{{ card.author.avatar }}" alt="{{ card.author.name }}">
             {% else %}
-              <div class="author-avatar-placeholder">{{ card.author.name[:1] }}</div>
+              <div class="profile-avatar-placeholder">{{ card.author.name[:1] }}</div>
             {% endif %}
-            <div class="author-main">
-              <div class="author-name">{{ card.author.name }}</div>
-              {% if card.author.uid or card.author.description %}
-                <div class="author-note">
-                  {% if card.author.uid %}<span>ID: {{ card.author.uid }}</span>{% endif %}
-                  {% if card.author.description %}<span>{{ card.author.description }}</span>{% endif %}
-                </div>
+            <div class="profile-main">
+              <div class="profile-name">{{ card.author.name }}</div>
+              {% if card.author.uid %}
+                <div class="profile-note"><span>ID {{ card.author.uid }}</span></div>
               {% endif %}
             </div>
             {% if card.author.metrics %}
-              <div class="author-metrics">
+              <div class="profile-metrics">
                 {% for metric in card.author.metrics %}
-                  <div class="author-metric">
-                    <div class="author-metric-head">
-                      {% if metric.icon %}<img class="author-metric-icon" src="{{ metric.icon }}" alt="">{% endif %}
+                  <div class="profile-metric">
+                    <div class="profile-metric-head">
+                      {% if metric.icon %}
+                        <img class="profile-metric-icon" src="{{ metric.icon }}" alt="">
+                      {% else %}
+                        <svg class="profile-metric-glyph" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2"/>
+                          <circle cx="10" cy="10" r="2"/>
+                        </svg>
+                      {% endif %}
                       {% if metric.label %}<span>{{ metric.label }}</span>{% endif %}
                     </div>
-                    <div class="author-metric-value">{{ metric.value }}</div>
+                    <div class="profile-metric-value">{{ metric.value }}</div>
                   </div>
                 {% endfor %}
               </div>
@@ -444,11 +695,7 @@
         {% endif %}
 
         <footer class="card-footer">
-          <span class="footer-brand">
-            {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
-            <span>{{ card.platform.display_name }} · 视频信息</span>
-          </span>
-          <span class="footer-mark">PARSED MEDIA CARD</span>
+          <span>sssysy/astrbot_plugin_parser_plus</span>
         </footer>
       </section>
     </div>

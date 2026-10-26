@@ -206,7 +206,8 @@ class Renderer:
             return None
         cover_path = await video.get_cover_path()
         return {
-            "cover": await self._path_to_data_uri(cover_path, self.CARD_WIDTH, 1000),
+            # 封面按原始比例完整展示，仅按最大边长缩放，避免竖图被压扁或裁切。
+            "cover": await self._path_to_data_uri(cover_path, 2000, 2000),
             "duration": video.display_duration,
             "quality": video.quality,
             "resolution": video.resolution,

@@ -19,6 +19,7 @@ from .core.clean import CacheCleaner
 from .core.config import PluginConfig
 from .core.debounce import Debouncer
 from .core.download import Downloader
+from .core.exception import ParseException
 from .core.parsers import BaseParser, BilibiliParser
 from .core.playwright_install import install_playwright_chromium
 from .core.render import Renderer
@@ -231,14 +232,43 @@ class ParserPlugin(Star):
         async def send_desc(description):
             await self.sender.send_desc(event, description)
 
-        parse_res = await self.parser_map[keyword].parse(
-            keyword,
-            searched,
-            desc_sink=send_desc,
-        )
+        try:
+            parse_res = await self.parser_map[keyword].parse(
+                keyword,
+                searched,
+                desc_sink=send_desc,
+            )
 
-        # 卡片发送完成后，才开始下载并发送最终解析内容。
-        await self.sender.parse_result(event, parse_res)
+            # 卡片发送完成后，才开始下载并发送最终解析内容。
+            await self.sender.parse_result(event, parse_res)
+        except Exception as exc:
+            await self._notify_parse_failure(event, exc, source="自动解析")
+
+    async def _notify_parse_failure(
+        self,
+        event: AstrMessageEvent,
+        exc: Exception,
+        *,
+        source: str,
+    ) -> None:
+        """记录解析异常，并按配置向用户发送安全提示。"""
+        error_text = self.sender.safe_exception_text(exc)
+        if isinstance(exc, ParseException):
+            logger.warning(
+                f"[解析] {source}失败 | "
+                f"error_type={type(exc).__name__} | "
+                f"error={error_text}"
+            )
+        else:
+            logger.error(
+                f"[解析] {source}异常 | "
+                f"error_type={type(exc).__name__} | "
+                f"error={error_text}"
+            )
+
+        if not self.cfg.show_download_fail_tip:
+            return
+        await self.sender.send_error(event, self.sender.format_user_error(exc))
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("开启解析")
@@ -322,13 +352,17 @@ class ParserPlugin(Star):
 
     async def parse_and_send(self, event: AstrMessageEvent, url: str) -> bool:
         """公开解析 API：先发送描述卡片，再发送最终解析内容。"""
-        keyword, matched, parser = self._match_parser(url)
+        try:
+            keyword, matched, parser = self._match_parser(url)
 
-        async def send_desc(description):
-            await self.sender.send_desc(event, description)
+            async def send_desc(description):
+                await self.sender.send_desc(event, description)
 
-        result = await parser.parse(keyword, matched, desc_sink=send_desc)
-        return await self.sender.parse_result(event, result)
+            result = await parser.parse(keyword, matched, desc_sink=send_desc)
+            return await self.sender.parse_result(event, result)
+        except Exception as exc:
+            await self._notify_parse_failure(event, exc, source="链接解析")
+            return False
 
     @filter.llm_tool(name="parse_media_url")
     async def llm_parse_media_url(self, event: AstrMessageEvent, url: str) -> str:
@@ -339,7 +373,9 @@ class ParserPlugin(Star):
             url(string): 待解析的视频或图文等媒体链接
         """
         try:
-            await self.parse_and_send(event, url)
+            sent = await self.parse_and_send(event, url)
+            if not sent:
+                return "链接解析失败，已记录错误"
             return "链接解析成功并已发送"
         except Exception as e:
             logger.error(f"[LLM Tool] 解析链接失败: {url}, error: {e}")

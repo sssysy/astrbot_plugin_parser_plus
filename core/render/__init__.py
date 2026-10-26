@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
+import io
 import mimetypes
 import re
 import uuid
@@ -12,7 +14,15 @@ from urllib.parse import urlsplit
 
 import aiofiles
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound, select_autoescape
-from playwright.async_api import Browser, Playwright, async_playwright
+from PIL import Image as PILImage
+from PIL import ImageOps, UnidentifiedImageError
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    Page,
+    Playwright,
+    async_playwright,
+)
 
 from astrbot.api import logger
 
@@ -38,8 +48,11 @@ class Renderer:
 
     TEMPLATE_DIR = Path(__file__).parent / "default"
     RESOURCE_DIR = Path(__file__).parent.parent / "resources"
+    CARD_WIDTH = 1000
     MAX_ASSET_BYTES = 8 * 1024 * 1024
-    RENDER_WIDTH = 900
+    MAX_DIRECT_ASSET_BYTES = 1024 * 1024
+    JPEG_QUALITY = 85
+    EMBEDDED_IMAGE_QUALITY = 84
 
     def __init__(
         self,
@@ -59,18 +72,27 @@ class Renderer:
         )
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
+        self._context: BrowserContext | None = None
+        self._page: Page | None = None
         self._browser_lock = asyncio.Lock()
+        self._render_lock = asyncio.Lock()
+        self._warmup_task: asyncio.Task[None] | None = None
 
     async def initialize(self) -> None:
-        """校验内置模板；浏览器保持懒加载。"""
+        """校验内置模板，并在后台预热本地浏览器。"""
         required = (self.TEMPLATE_DIR / "common.html",)
         missing = [path.name for path in required if not path.is_file()]
         if missing:
             raise RuntimeError(f"渲染模板缺失: {', '.join(missing)}")
+        if self.cfg.use_local_renderer and self._warmup_task is None:
+            self._warmup_task = asyncio.create_task(self._warmup_local_renderer())
 
     async def close(self) -> None:
         """关闭 Playwright 浏览器与驱动。"""
+        self._warmup_task = None
         browser, playwright = self._browser, self._playwright
+        self._page = None
+        self._context = None
         self._browser = None
         self._playwright = None
         if browser is not None:
@@ -128,11 +150,30 @@ class Renderer:
         return None
 
     async def _description_context(self, description: Description) -> dict[str, Any]:
+        (
+            logo,
+            blocks,
+            author,
+            metrics,
+            video,
+            repost,
+        ) = await asyncio.gather(
+            self._platform_logo(description.platform.name),
+            self._content_blocks(description.contents),
+            self._author_context(description.author),
+            self._metrics_context(description.metrics),
+            self._video_context(description),
+            (
+                self._description_context(description.repost)
+                if description.repost is not None
+                else asyncio.sleep(0, result=None)
+            ),
+        )
         return {
             "platform": {
                 "name": description.platform.name,
                 "display_name": description.platform.display_name,
-                "logo": await self._platform_logo(description.platform.name),
+                "logo": logo,
             },
             "title": description.title,
             "text": description.text,
@@ -140,15 +181,11 @@ class Renderer:
             "extra_info": description.extra_info,
             "timestamp": description.timestamp,
             "formatted_datetime": description.formatted_datetime("%Y-%m-%d %H:%M"),
-            "blocks": await self._content_blocks(description.contents),
-            "author": await self._author_context(description.author),
-            "metrics": await self._metrics_context(description.metrics),
-            "video": await self._video_context(description),
-            "repost": (
-                await self._description_context(description.repost)
-                if description.repost is not None
-                else None
-            ),
+            "blocks": blocks,
+            "author": author,
+            "metrics": metrics,
+            "video": video,
+            "repost": repost,
         }
 
     async def _author_context(self, author: Author | None) -> dict[str, Any] | None:
@@ -159,7 +196,7 @@ class Renderer:
             "name": author.name,
             "uid": author.uid,
             "description": author.description,
-            "avatar": await self._path_to_data_uri(avatar_path),
+            "avatar": await self._path_to_data_uri(avatar_path, 192, 192),
             "metrics": await self._metrics_context(author.metrics),
         }
 
@@ -169,7 +206,7 @@ class Renderer:
             return None
         cover_path = await video.get_cover_path()
         return {
-            "cover": await self._path_to_data_uri(cover_path),
+            "cover": await self._path_to_data_uri(cover_path, self.CARD_WIDTH, 1000),
             "duration": video.display_duration,
             "quality": video.quality,
             "resolution": video.resolution,
@@ -178,58 +215,54 @@ class Renderer:
     async def _metrics_context(
         self, metrics: list[Metric] | None
     ) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for metric in metrics or ():
-            result.append(
-                {
-                    "icon": await self._icon_to_data_uri(metric.icon),
-                    "label": metric.label,
-                    "value": metric.value,
-                }
-            )
-        return result
+        items = list(metrics or ())
+        icons = await asyncio.gather(
+            *(self._icon_to_data_uri(metric.icon) for metric in items)
+        )
+        return [
+            {
+                "icon": icon,
+                "label": metric.label,
+                "value": metric.value,
+            }
+            for metric, icon in zip(items, icons, strict=True)
+        ]
 
     async def _content_blocks(
         self, contents: list[MediaContent]
     ) -> list[dict[str, Any]]:
-        blocks: list[dict[str, Any]] = []
-        for content in contents:
+        async def build_block(content: MediaContent) -> dict[str, Any] | None:
             if isinstance(content, TextContent):
-                if content.text:
-                    blocks.append({"type": "text", "text": content.text})
-                continue
+                return {"type": "text", "text": content.text} if content.text else None
             if isinstance(content, GraphicsContent):
                 path = await content.get_path()
-                blocks.append(
-                    {
-                        "type": "graphics",
-                        "src": await self._path_to_data_uri(path),
-                        "text": content.text,
-                        "alt": content.alt,
-                    }
-                )
-                continue
+                return {
+                    "type": "graphics",
+                    "src": await self._path_to_data_uri(path, self.CARD_WIDTH, 2000),
+                    "text": content.text,
+                    "alt": content.alt,
+                }
             if isinstance(content, ImageContent):
                 path = await content.get_path()
-                blocks.append(
-                    {
-                        "type": "image",
-                        "src": await self._path_to_data_uri(path),
-                        "alt": "",
-                    }
-                )
-                continue
+                return {
+                    "type": "image",
+                    "src": await self._path_to_data_uri(path, self.CARD_WIDTH, 2000),
+                    "alt": "",
+                }
             if isinstance(content, VideoContent):
                 cover_path = await content.get_cover_path()
                 if cover_path is not None:
-                    blocks.append(
-                        {
-                            "type": "image",
-                            "src": await self._path_to_data_uri(cover_path),
-                            "alt": "",
-                        }
-                    )
-        return blocks
+                    return {
+                        "type": "image",
+                        "src": await self._path_to_data_uri(
+                            cover_path, self.CARD_WIDTH, 1000
+                        ),
+                        "alt": "",
+                    }
+            return None
+
+        blocks = await asyncio.gather(*(build_block(content) for content in contents))
+        return [block for block in blocks if block is not None]
 
     async def _icon_to_data_uri(self, icon: IconAsset | None) -> str:
         if icon is None:
@@ -244,9 +277,9 @@ class Renderer:
         if icon.kind == "url":
             task = self.downloader.download_img(str(icon.value))
             path = await task
-            return await self._path_to_data_uri(path)
+            return await self._path_to_data_uri(path, 96, 96)
         if icon.kind == "path":
-            return await self._path_to_data_uri(Path(str(icon.value)))
+            return await self._path_to_data_uri(Path(str(icon.value)), 96, 96)
         return ""
 
     async def _platform_logo(self, platform_name: str) -> str:
@@ -255,9 +288,14 @@ class Renderer:
             / "logos"
             / f"{self._safe_template_name(platform_name)}.png"
         )
-        return await self._path_to_data_uri(path)
+        return await self._path_to_data_uri(path, 256, 256)
 
-    async def _path_to_data_uri(self, path: Path | None) -> str:
+    async def _path_to_data_uri(
+        self,
+        path: Path | None,
+        max_width: int = CARD_WIDTH,
+        max_height: int = 2000,
+    ) -> str:
         if path is None:
             return ""
         resolved = await asyncio.to_thread(path.expanduser().resolve)
@@ -267,19 +305,89 @@ class Renderer:
         try:
             if not resolved.is_file():
                 return ""
-            size = await asyncio.to_thread(resolved.stat)
-            if size.st_size <= 0 or size.st_size > self.MAX_ASSET_BYTES:
+            stat = await asyncio.to_thread(resolved.stat)
+            if stat.st_size <= 0 or stat.st_size > self.MAX_ASSET_BYTES:
                 logger.warning(
-                    f"[渲染] 资源大小异常: {resolved.name}, size={size.st_size}"
+                    f"[渲染] 资源大小异常: {resolved.name}, size={stat.st_size}"
                 )
                 return ""
-            data = await asyncio.to_thread(resolved.read_bytes)
+            data_uri = await asyncio.to_thread(
+                self._build_asset_data_uri,
+                resolved,
+                stat.st_size,
+                max_width,
+                max_height,
+            )
         except OSError as exc:
             logger.warning(f"[渲染] 读取资源失败: {resolved.name}, error={exc}")
             return ""
-        mime = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
-        encoded = base64.b64encode(data).decode("ascii")
-        return f"data:{mime};base64,{encoded}"
+        return data_uri
+
+    @classmethod
+    def _build_asset_data_uri(
+        cls,
+        path: Path,
+        file_size: int,
+        max_width: int = CARD_WIDTH,
+        max_height: int = 2000,
+    ) -> str:
+        """在后台线程按最终展示尺寸压缩内嵌图片。"""
+        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        try:
+            with PILImage.open(path) as source:
+                source.seek(0)
+                original_width, original_height = source.size
+                orientation = source.getexif().get(274, 1)
+                needs_resize = (
+                    original_width > max_width
+                    or original_height > max_height
+                    or orientation not in (None, 1)
+                )
+                if not needs_resize and file_size <= cls.MAX_DIRECT_ASSET_BYTES:
+                    data = path.read_bytes()
+                    encoded = base64.b64encode(data).decode("ascii")
+                    return f"data:{mime};base64,{encoded}"
+
+                image = (
+                    ImageOps.exif_transpose(source)
+                    if orientation not in (None, 1)
+                    else source
+                )
+                try:
+                    image.thumbnail(
+                        (max_width, max_height),
+                        PILImage.Resampling.LANCZOS,
+                    )
+                    has_alpha = image.mode in {"RGBA", "LA"} or (
+                        image.mode == "P" and "transparency" in image.info
+                    )
+                    output = io.BytesIO()
+                    if has_alpha:
+                        image.save(
+                            output,
+                            format="WEBP",
+                            quality=cls.EMBEDDED_IMAGE_QUALITY,
+                            method=2,
+                        )
+                        encoded_mime = "image/webp"
+                    else:
+                        image.convert("RGB").save(
+                            output,
+                            format="JPEG",
+                            quality=cls.EMBEDDED_IMAGE_QUALITY,
+                            optimize=False,
+                        )
+                        encoded_mime = "image/jpeg"
+                finally:
+                    if image is not source:
+                        image.close()
+        except (UnidentifiedImageError, OSError, ValueError):
+            data = path.read_bytes()
+            encoded = base64.b64encode(data).decode("ascii")
+            return f"data:{mime};base64,{encoded}"
+
+        encoded = base64.b64encode(output.getvalue()).decode("ascii")
+        return f"data:{encoded_mime};base64,{encoded}"
 
     def _is_allowed_asset(self, path: Path) -> bool:
         roots = (
@@ -305,38 +413,116 @@ class Renderer:
             try:
                 self._browser = await self._playwright.chromium.launch(
                     headless=True,
-                    args=["--disable-dev-shm-usage"],
+                    args=[
+                        "--disable-dev-shm-usage",
+                        "--disable-background-networking",
+                        "--disable-component-update",
+                        "--disable-default-apps",
+                        "--disable-extensions",
+                        "--disable-sync",
+                        "--metrics-recording-only",
+                        "--mute-audio",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        "--disable-background-timer-throttling",
+                        "--disable-renderer-backgrounding",
+                        "--disable-features=Translate,MediaRouter,"
+                        "OptimizationHints,CalculateNativeWinOcclusion",
+                        "--font-render-hinting=none",
+                    ],
                 )
+                self._page = None
+                self._context = None
             except Exception:
                 await self._playwright.stop()
                 self._playwright = None
                 raise
             return self._browser
 
-    async def _render_local(self, html: str) -> Path:
+    async def _ensure_page(self) -> Page:
         browser = await self._ensure_browser()
-        timeout_ms = max(15_000, self.cfg.common_timeout * 1000)
-        context = await browser.new_context(
-            viewport={"width": self.RENDER_WIDTH, "height": 1200},
-            device_scale_factor=2,
+        if self._context is None:
+            self._context = await browser.new_context(
+                viewport={"width": self.CARD_WIDTH, "height": 1000},
+                device_scale_factor=1,
+                color_scheme="light",
+                reduced_motion="reduce",
+            )
+        if self._page is None:
+            self._page = await self._context.new_page()
+        self._page.set_default_timeout(
+            max(15_000, self.cfg.common_timeout * 1000)
         )
-        page = await context.new_page()
-        page.set_default_timeout(timeout_ms)
-        cache = self.cfg.cache_dir / f"card_{uuid.uuid4().hex}.png"
+        return self._page
+
+    async def _warmup_local_renderer(self) -> None:
+        task = asyncio.current_task()
         try:
-            await page.set_content(html, wait_until="load")
-            await page.wait_for_function(
-                "() => Array.from(document.images).every((img) => img.complete)"
+            async with self._render_lock:
+                if task is None or self._warmup_task is not task:
+                    return
+                page = await self._ensure_page()
+                await page.set_content(
+                    "<html><body></body></html>",
+                    wait_until="domcontentloaded",
+                )
+        except Exception as exc:
+            if task is not None and self._warmup_task is not task:
+                return
+            logger.warning(
+                "[渲染] 浏览器预热失败 | "
+                f"error_type={type(exc).__name__} | "
+                f"error={self._safe_exception_text(exc)}"
             )
-            await page.evaluate("document.fonts.ready")
-            await page.locator("main.card").screenshot(
-                path=str(cache),
-                type="png",
+
+    async def _render_local(
+        self,
+        html: str,
+    ) -> Path:
+        async with self._render_lock:
+            return await self._render_local_locked(html)
+
+    async def _render_local_locked(self, html: str) -> Path:
+        page = await self._ensure_page()
+        output = self.cfg.cache_dir / f"card_{uuid.uuid4().hex}.jpg"
+        try:
+            await page.set_content(html, wait_until="domcontentloaded")
+            await page.evaluate(
+                """async () => {
+                    await document.fonts.ready;
+                    await Promise.all(
+                        Array.from(document.images, (img) =>
+                            img.decode().catch(() => undefined)
+                        )
+                    );
+                }"""
+            )
+            await page.screenshot(
+                path=str(output),
+                type="jpeg",
+                quality=self.JPEG_QUALITY,
+                full_page=True,
                 animations="disabled",
+                caret="hide",
+                scale="css",
             )
-        finally:
-            await context.close()
-        return cache
+        except Exception:
+            await self._reset_page()
+            raise
+
+        return output
+
+    async def _reset_page(self) -> None:
+        page, context = self._page, self._context
+        self._page = None
+        self._context = None
+        for resource in (page, context):
+            if resource is None:
+                continue
+            try:
+                await resource.close()
+            except Exception:
+                logger.warning("[渲染] 重置浏览器页面失败")
 
     async def _render_remote(self, html: str) -> Path | None:
         if self.remote_renderer is None:
@@ -346,7 +532,11 @@ class Renderer:
             html,
             {},
             return_url=False,
-            options={"full_page": True, "type": "jpeg", "quality": 90},
+            options={
+                "full_page": True,
+                "type": "jpeg",
+                "quality": self.JPEG_QUALITY,
+            },
         )
         if not result:
             return None
@@ -354,12 +544,23 @@ class Renderer:
         if not await asyncio.to_thread(source.is_file):
             logger.error("[渲染] 远程渲染未返回可用文件")
             return None
-        suffix = source.suffix or ".jpg"
-        target = self.cfg.cache_dir / f"card_{uuid.uuid4().hex}{suffix}"
+        target = self.cfg.cache_dir / f"card_{uuid.uuid4().hex}.jpg"
         data = await asyncio.to_thread(source.read_bytes)
-        async with aiofiles.open(target, "wb") as fp:
-            await fp.write(data)
+        if source.suffix.lower() in {".jpg", ".jpeg"}:
+            async with aiofiles.open(target, "wb") as fp:
+                await fp.write(data)
+        else:
+            await asyncio.to_thread(self._write_jpeg, data, target)
         return target
+
+    def _write_jpeg(self, data: bytes, target: Path) -> None:
+        with PILImage.open(io.BytesIO(data)) as image:
+            image.convert("RGB").save(
+                target,
+                format="JPEG",
+                quality=self.JPEG_QUALITY,
+                optimize=False,
+            )
 
     @staticmethod
     def _safe_template_name(value: str) -> str:

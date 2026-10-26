@@ -13,9 +13,9 @@
       --line: rgba(23, 25, 29, .08);
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: transparent; }
+    html, body { margin: 0; padding: 0; background: #fff; }
     body {
-      width: 900px;
+      width: 1000px;
       color: var(--ink);
       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
       -webkit-font-smoothing: antialiased;
@@ -24,53 +24,17 @@
     .card {
       position: relative;
       isolation: isolate;
-      width: 900px;
+      width: 1000px;
       min-height: 320px;
       overflow: hidden;
-      border-radius: 34px;
-      background: var(--card);
-    }
-    .ambient-cover {
-      position: absolute;
-      inset: -120px;
-      z-index: -2;
-      width: calc(100% + 240px);
-      height: calc(100% + 240px);
-      object-fit: cover;
-      filter: blur(96px) saturate(1.65);
-      opacity: .58;
-      transform: scale(1.16);
+      border-radius: 0;
+      background:
+        linear-gradient(150deg, rgba(113, 177, 244, .20), transparent 38%),
+        linear-gradient(330deg, rgba(244, 164, 184, .16), transparent 42%),
+        var(--card);
     }
     .ambient-fallback {
-      position: absolute;
-      inset: 0;
-      z-index: -2;
-      background:
-        radial-gradient(circle at 14% 4%, rgba(106, 180, 255, .34), transparent 36%),
-        radial-gradient(circle at 92% 28%, rgba(255, 164, 193, .22), transparent 38%),
-        linear-gradient(150deg, #f8fafc 0%, #edf1f5 60%, #e9edf2 100%);
-    }
-    .ambient-wash {
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-      background:
-        linear-gradient(to bottom,
-          rgba(248, 249, 251, .10) 0%,
-          rgba(248, 249, 251, .42) 30%,
-          rgba(248, 249, 251, .86) 62%,
-          rgba(247, 248, 250, .97) 84%,
-          #f5f6f8 100%);
-    }
-    .noise {
-      position: absolute;
-      inset: 0;
-      z-index: 4;
-      width: 100%;
-      height: 100%;
-      opacity: .12;
-      mix-blend-mode: soft-light;
-      pointer-events: none;
+      display: none;
     }
     .shell { position: relative; z-index: 2; }
     .hero {
@@ -130,7 +94,6 @@
       color: #fff;
       background: rgba(11, 14, 18, .48);
       box-shadow: 0 8px 28px rgba(0, 0, 0, .16);
-      backdrop-filter: blur(18px) saturate(1.25);
     }
     .platform-badge img { display: block; width: 27px; height: 27px; object-fit: contain; }
     .platform-badge .platform-name {
@@ -158,7 +121,6 @@
       letter-spacing: .02em;
       background: rgba(11, 14, 18, .52);
       box-shadow: 0 8px 30px rgba(0, 0, 0, .2);
-      backdrop-filter: blur(18px) saturate(1.2);
     }
     .play-icon {
       display: flex;
@@ -288,7 +250,6 @@
       border-radius: 24px;
       background: rgba(255, 255, 255, .45);
       box-shadow: 0 12px 34px rgba(39, 45, 53, .055);
-      backdrop-filter: blur(14px);
     }
     .author-avatar, .author-avatar-placeholder {
       width: 66px;
@@ -373,27 +334,6 @@
 </head>
 <body>
   <main class="card video-card">
-    {% if card.video and card.video.cover %}
-      <img class="ambient-cover" src="{{ card.video.cover }}" alt="">
-    {% else %}
-      <div class="ambient-fallback"></div>
-    {% endif %}
-    <div class="ambient-wash"></div>
-    <svg class="noise" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <defs>
-        <filter id="video-card-noise">
-          <feTurbulence type="fractalNoise" baseFrequency=".92" numOctaves="3" stitchTiles="stitch"/>
-          <feColorMatrix type="saturate" values="0"/>
-          <feComponentTransfer>
-            <feFuncR type="discrete" tableValues="0 1"/>
-            <feFuncG type="discrete" tableValues="0 1"/>
-            <feFuncB type="discrete" tableValues="0 1"/>
-          </feComponentTransfer>
-        </filter>
-      </defs>
-      <rect width="100%" height="100%" filter="url(#video-card-noise)" opacity=".55"/>
-    </svg>
-
     <div class="shell">
       <section class="hero">
         <div class="cover-frame">

@@ -69,10 +69,10 @@ class DouyinParser(BaseParser):
         return hostname == "iesdouyin.com" or hostname.endswith(".iesdouyin.com")
 
     def _has_ttwid(self) -> bool:
-        cookie_header = self.cookiejar.get_cookie_header_for_url(
-            "https://www.iesdouyin.com/"
+        return any(
+            cookie.name == "ttwid" and not cookie.is_expired()
+            for cookie in self.cookiejar.cookies
         )
-        return "ttwid=" in cookie_header
 
     # https://v.douyin.com/_2ljF4AmKL8
     @handle("v.douyin", r"v\.douyin\.com/[a-zA-Z0-9_\-]+")

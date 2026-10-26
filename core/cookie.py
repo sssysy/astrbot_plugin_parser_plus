@@ -74,10 +74,14 @@ class CookieJar:
         self.raw_cookies = parser_cfg.cookies
         self.cookies_str = ""
 
-        if self.raw_cookies:
+        if self.raw_cookies is not None:
+            # 配置清空代表用户主动撤销持久化凭证，避免旧文件继续生效。
+            if not self.raw_cookies.strip() and self.cookie_file.exists():
+                self.cookie_file.unlink(missing_ok=True)
             self.cookies_str = self.clean_cookies_str(self.raw_cookies)
-            self._load_from_cookies_str(self.cookies_str)
-            self.save_to_file()
+            if self.cookies_str:
+                self._load_from_cookies_str(self.cookies_str)
+                self.save_to_file()
 
         if self.cookie_file.exists():
             self.load_from_file()

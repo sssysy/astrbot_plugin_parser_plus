@@ -2,8 +2,10 @@ from random import choice
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import msgspec
 from msgspec import Struct, field
 
+from ...data import Metric
 from ..base import ParseException
 
 
@@ -32,6 +34,13 @@ class Video(Struct):
     duration: int
 
 
+class Statistics(Struct):
+    digg_count: int | str = 0
+    comment_count: int | str = 0
+    collect_count: int | str = 0
+    share_count: int | str = 0
+
+
 class Image(Struct):
     video: Video | None = None
     url_list: list[str] = field(default_factory=list)
@@ -43,6 +52,7 @@ class VideoData(Struct):
     desc: str
     images: list[Image] | None = None
     video: Video | None = None
+    statistics: Statistics | None = None
 
     @property
     def image_urls(self) -> list[str]:
@@ -72,6 +82,45 @@ class VideoData(Struct):
     @property
     def cover_url(self) -> str | None:
         return choice(self.video.cover.url_list) if self.video else None
+
+    @property
+    def duration_seconds(self) -> float:
+        """抖音接口的 duration 单位是毫秒。"""
+        if not self.video:
+            return 0.0
+        return max(self.video.duration, 0) / 1000
+
+    def apply_detail(self, detail: dict[str, Any]) -> None:
+        """用 Web 详情接口补齐分享页可能缺失的统计与时长。"""
+        if stats := detail.get("statistics"):
+            self.statistics = msgspec.convert(stats, type=Statistics)
+        duration = (detail.get("video") or {}).get("duration")
+        if self.video and isinstance(duration, int) and duration > 0:
+            self.video.duration = duration
+
+    @property
+    def metrics(self) -> list[Metric]:
+        stats = self.statistics
+        if stats is None:
+            return []
+        return [
+            Metric(icon=None, label="点赞", value=self._format_count(stats.digg_count)),
+            Metric(icon=None, label="评论", value=self._format_count(stats.comment_count)),
+            Metric(icon=None, label="收藏", value=self._format_count(stats.collect_count)),
+            Metric(icon=None, label="分享", value=self._format_count(stats.share_count)),
+        ]
+
+    @staticmethod
+    def _format_count(value: int | str) -> str:
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return "0"
+        if value >= 100_000_000:
+            return f"{value / 100_000_000:.1f}亿"
+        if value >= 10_000:
+            return f"{value / 10_000:.1f}万"
+        return str(value)
 
     @property
     def avatar_url(self) -> str | None:

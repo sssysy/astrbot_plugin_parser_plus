@@ -10,13 +10,7 @@ from astrbot.api import logger
 
 from ...config import PluginConfig
 from ...cookie import CookieJar
-from ..base import (
-    BaseParser,
-    Downloader,
-    ParseException,
-    Platform,
-    handle,
-)
+from ..base import BaseParser, Downloader, ParseException, Platform, handle
 
 if TYPE_CHECKING:
     from ...data import MediaContent
@@ -226,6 +220,7 @@ class DouyinParser(BaseParser):
         video_data = msgspec.json.decode(
             matched.group(1).strip(), type=RouterData
         ).video_data
+        await self._enrich_video_data(video_data, vid)
         logger.debug(
             f"[抖音] 解析成功 - 作者: {video_data.author.nickname}, 描述: {video_data.desc[:50]}..."
         )
@@ -242,8 +237,8 @@ class DouyinParser(BaseParser):
         # 添加视频内容
         elif video_data.video:
             cover_url = video_data.cover_url
-            duration = video_data.video.duration if video_data.video else 0
-            logger.debug(f"[抖音] 检测到视频内容，时长: {duration}秒")
+            duration = video_data.duration_seconds
+            logger.debug(f"[抖音] 检测到视频内容，时长: {duration:.2f}秒")
             video_headers = self._build_media_headers(url)
             video_url = None
             if play_token := video_data.play_token:
@@ -268,6 +263,7 @@ class DouyinParser(BaseParser):
         author = self.create_author(
             video_data.author.nickname, video_data.avatar_url, headers=self.ios_headers
         )
+        metrics = video_data.metrics
 
         if video_data.video:
             await self.send_desc_video(
@@ -277,6 +273,7 @@ class DouyinParser(BaseParser):
                 duration=duration,
                 timestamp=video_data.create_time,
                 url=url,
+                metrics=metrics,
             )
         else:
             await self.send_desc_common(
@@ -293,6 +290,31 @@ class DouyinParser(BaseParser):
         return (
             f"https://aweme.snssdk.com/aweme/v1/play/?video_id={video_id}&ratio={ratio}"
         )
+
+    async def _enrich_video_data(self, video_data, video_id: str) -> None:
+        """从 Web 详情接口补齐分享页缺失的统计与时长。"""
+        headers = self.ios_headers.copy()
+        headers.update(
+            {
+                "Referer": "https://www.douyin.com/",
+                "Origin": "https://www.douyin.com",
+            }
+        )
+        try:
+            async with self.session.get(
+                "https://www.douyin.com/aweme/v1/web/aweme/detail/",
+                params={"aweme_id": video_id, "aid": "6383"},
+                headers=headers,
+            ) as resp:
+                if resp.status >= 400:
+                    raise ValueError(f"status: {resp.status}")
+                payload = await resp.json(content_type=None)
+        except (ClientError, TimeoutError, ValueError, msgspec.ValidationError) as e:
+            logger.warning(f"[抖音] 详情接口补充统计失败，继续使用分享页数据: {e}")
+            return
+        detail = payload.get("aweme_detail") if isinstance(payload, dict) else None
+        if isinstance(detail, dict):
+            video_data.apply_detail(detail)
 
     def _build_media_headers(self, referer: str) -> dict[str, str]:
         headers = self.ios_headers.copy()

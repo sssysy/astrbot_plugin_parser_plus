@@ -46,7 +46,8 @@
     }
     .ambient {
       position: absolute;
-      inset: 0;
+      inset: 0 0 auto;
+      height: 62%;
       z-index: 0;
       overflow: hidden;
       background:
@@ -56,18 +57,20 @@
     }
     .ambient-cover {
       position: absolute;
-      inset: -100px;
-      width: calc(100% + 200px);
-      height: calc(100% + 200px);
+      inset: -120px;
+      width: calc(100% + 240px);
+      height: calc(100% + 240px);
       object-fit: cover;
-      opacity: .2;
+      opacity: .72;
+      filter: blur(72px) saturate(1.45);
+      transform: scale(1.12);
     }
     .ambient-wash {
       position: absolute;
       inset: 0;
       background:
-        linear-gradient(180deg, rgba(8, 9, 11, .48) 0%, rgba(8, 9, 11, .82) 42%, var(--bg) 88%),
-        radial-gradient(circle at 50% 20%, transparent 0%, rgba(0, 0, 0, .36) 72%);
+        linear-gradient(180deg, rgba(8, 9, 11, .78) 0%, rgba(8, 9, 11, .48) 42%, rgba(8, 9, 11, .9) 86%, var(--bg) 100%),
+        radial-gradient(circle at 50% 25%, transparent 0%, rgba(0, 0, 0, .3) 72%);
     }
     .ambient-grid {
       position: absolute;
@@ -115,23 +118,6 @@
       background: linear-gradient(145deg, #34363d, #15161a);
     }
     .creator-main { min-width: 0; }
-    .creator-kicker {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      margin-bottom: 7px;
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 750;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-    .creator-kicker img {
-      width: 20px;
-      height: 20px;
-      object-fit: contain;
-      opacity: .9;
-    }
     .creator-name {
       max-width: 490px;
       overflow: hidden;
@@ -166,13 +152,32 @@
       border-radius: 50%;
       background: var(--soft);
     }
-    .signal-strip {
+    .top-right {
       display: flex;
       flex: 0 0 auto;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 14px;
+    }
+    .platform-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      color: rgba(247, 247, 245, .82);
+      font-size: 14px;
+      font-weight: 750;
+      letter-spacing: .06em;
+    }
+    .platform-brand img {
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+    }
+    .signal-strip {
+      display: flex;
       align-items: flex-start;
       justify-content: flex-end;
       gap: 20px;
-      padding-top: 5px;
     }
     .signal {
       min-width: 54px;
@@ -205,26 +210,6 @@
       font-variant-numeric: tabular-nums;
       line-height: 1;
       white-space: nowrap;
-    }
-    .platform-mark {
-      display: flex;
-      flex: 0 0 auto;
-      align-items: center;
-      gap: 10px;
-      margin-top: 3px;
-      padding: 9px 13px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      color: var(--muted);
-      font-size: 14px;
-      font-weight: 750;
-      letter-spacing: .04em;
-      background: rgba(255, 255, 255, .045);
-    }
-    .platform-mark img {
-      width: 22px;
-      height: 22px;
-      object-fit: contain;
     }
     .hero {
       position: relative;
@@ -296,31 +281,6 @@
     }
     .hero-top { top: 42px; }
     .hero-bottom { bottom: 42px; align-items: flex-end; }
-    .hero-pill {
-      display: inline-flex;
-      max-width: 330px;
-      align-items: center;
-      gap: 9px;
-      padding: 8px 12px;
-      overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, .16);
-      border-radius: 999px;
-      color: rgba(255, 255, 255, .9);
-      font-size: 14px;
-      font-weight: 750;
-      letter-spacing: .04em;
-      background: rgba(7, 8, 10, .54);
-    }
-    .hero-pill img {
-      width: 21px;
-      height: 21px;
-      object-fit: contain;
-    }
-    .hero-pill span {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
     .facts {
       display: flex;
       flex-wrap: wrap;
@@ -543,10 +503,6 @@
               <div class="avatar-placeholder">{{ card.author.name[:1] }}</div>
             {% endif %}
             <div class="creator-main">
-              <div class="creator-kicker">
-                {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
-                <span>{{ card.platform.display_name }}</span>
-              </div>
               <div class="creator-name">{{ card.author.name }}</div>
               {% if card.formatted_datetime or card.author.uid or card.author.description %}
                 <div class="creator-meta">
@@ -561,10 +517,6 @@
             </div>
           {% else %}
             <div class="creator-main">
-              <div class="creator-kicker">
-                {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
-                <span>{{ card.platform.display_name }} · VIDEO</span>
-              </div>
               <div class="creator-name">{{ card.title or '视频作品' }}</div>
               {% if card.formatted_datetime %}
                 <div class="creator-meta"><span>{{ card.formatted_datetime }}</span></div>
@@ -573,30 +525,31 @@
           {% endif %}
         </div>
 
-        {% if card.metrics %}
-          <div class="signal-strip">
-            {% for metric in card.metrics %}
-              <div class="signal"{% if loop.index > 4 %} style="display: none;"{% endif %}>
-                <div class="signal-head">
-                  {% if metric.icon %}
-                    <img class="signal-icon" src="{{ metric.icon }}" alt="">
-                  {% else %}
-                    <svg class="signal-glyph" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                      <circle cx="4" cy="10" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="16" cy="10" r="2"/>
-                    </svg>
-                  {% endif %}
-                  {% if metric.label %}<span>{{ metric.label }}</span>{% endif %}
-                </div>
-                <div class="signal-value">{{ metric.value }}</div>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="platform-mark">
+        <div class="top-right">
+          <div class="platform-brand">
             {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
             <span>{{ card.platform.display_name }}</span>
           </div>
-        {% endif %}
+          {% if card.metrics %}
+            <div class="signal-strip">
+              {% for metric in card.metrics %}
+                <div class="signal"{% if loop.index > 4 %} style="display: none;"{% endif %}>
+                  <div class="signal-head">
+                    {% if metric.icon %}
+                      <img class="signal-icon" src="{{ metric.icon }}" alt="">
+                    {% else %}
+                      <svg class="signal-glyph" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <circle cx="4" cy="10" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="16" cy="10" r="2"/>
+                      </svg>
+                    {% endif %}
+                    {% if metric.label %}<span>{{ metric.label }}</span>{% endif %}
+                  </div>
+                  <div class="signal-value">{{ metric.value }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
       </header>
 
       <section class="hero">
@@ -610,10 +563,7 @@
             </div>
           {% endif %}
           <div class="hero-top">
-            <div class="hero-pill">
-              {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
-              <span>{{ card.platform.display_name }}</span>
-            </div>
+            <div></div>
             {% if card.video and (card.video.quality or card.video.resolution) %}
               <div class="facts">
                 {% if card.video.quality %}<span class="fact">{{ card.video.quality }}</span>{% endif %}

@@ -1,5 +1,14 @@
 # 更新日志
 
+## Unreleased
+
+- 重构解析器注册架构：`core/parsers/<name>/` 包内自带 `config.json`，由注册中心启动扫描并原子注册。
+- 解析器启停与参数配置迁移到插件 Page，`_conf_schema.json` 只保留全局配置。
+- 用户解析器配置改存 `plugin_data/astrbot_plugin_parser/parser_config/<name>.json`，不再迁移旧 `parsers_template` 配置。
+- 首期按新架构重写抖音解析器；其余旧平台解析器仅归档至 `docs/parser_old/` 供后续重写参考，不进入新版运行时。
+- 保留 `parse_url()`、`parse_and_send()`、`llm_parse_media_url()` 三个公开入口。
+- 插件 Page 增加皮肤页签占位，当前仅支持内置默认皮肤。
+
 ## v1.5.10
 
 - 修复非 AAC-LC 音频（如抖音 HE-AACv2）在 QQ 平台视频无法正常渲染的问题 (#214)

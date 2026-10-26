@@ -1,6 +1,5 @@
 """Parser 基类定义"""
 
-from abc import ABC
 from asyncio import Task, TimeoutError, sleep
 from collections.abc import (
     Awaitable,
@@ -75,9 +74,6 @@ class BaseParser:
     - platform: 平台信息（包含名称和显示名称)
     """
 
-    _registry: ClassVar[list[type["BaseParser"]]] = []
-    """ 存储所有已注册的 Parser 类 """
-
     platform: ClassVar[Platform]
     """ 平台信息（包含名称和显示名称） """
 
@@ -90,25 +86,26 @@ class BaseParser:
         self.ios_headers = IOS_HEADER.copy()
         self.android_headers = ANDROID_HEADER.copy()
         self.cfg = config
+        self.mycfg = self._load_mycfg()
         self.data_dir = self.cfg.data_dir
         self.downloader = downloader
         self._session: ClientSession | None = None
 
+    def _load_mycfg(self) -> ParserItem:
+        parser_cfg = getattr(self.cfg.parser, self.platform.name, None)
+        if parser_cfg is None:
+            raise AttributeError(
+                f"解析器 {self.platform.name} 未注册或未生成运行时配置"
+            )
+        return parser_cfg
+
     @property
     def proxy(self) -> str | None:
-        try:
-            parser_cfg: ParserItem = getattr(
-                self.cfg.parser, self.__class__.platform.name
-            )
-            return self.cfg.proxy if parser_cfg.use_proxy else None
-        except AttributeError:
-            return None
+        return self.cfg.proxy if self.mycfg.use_proxy else None
 
     def __init_subclass__(cls, **kwargs):
-        """自动注册子类到 _registry"""
+        """收集 @handle 声明。"""
         super().__init_subclass__(**kwargs)
-        if ABC not in cls.__bases__:  # 跳过抽象类
-            BaseParser._registry.append(cls)
 
         cls._handlers = {}
         cls._key_patterns = []
@@ -125,11 +122,6 @@ class BaseParser:
 
         # 按关键字长度降序排序
         cls._key_patterns.sort(key=lambda x: -len(x[0]))
-
-    @classmethod
-    def get_all_subclass(cls) -> list[type["BaseParser"]]:
-        """获取所有已注册的 Parser 类"""
-        return cls._registry
 
     @property
     def session(self) -> ClientSession:

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
 import zoneinfo
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Iterable, Mapping, MutableMapping
 from pathlib import Path
 from types import MappingProxyType, UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
@@ -107,32 +106,41 @@ class ConfigNode:
         self._data.save_config()
 
 
-class ConfigNodeContainer:
-    """
-    配置节点容器, 把 list 的 dict 变成 dict 的对象集合。
+# ================ 插件自定义配置 ==================
 
-    - nodes: list[dict[str, Any]]
-    - item_cls 用于包装 dict 成强类型节点
-    - key_name 作为属性名访问, 默认为 "__template_key"
-    """
 
-    def __init__(
-        self,
-        nodes: list[dict[str, Any]],
-        item_cls: type[ConfigNode],
-        key_name="__template_key",
-    ):
-        self._nodes: dict[str, ConfigNode] = {}
-        for node in nodes:
-            key = node.get(key_name)
-            if not key:
-                logger.warning(f"[node] 缺少 {key_name}，已跳过")
-                continue
-            if key in self._nodes:
-                logger.warning(f"[node] {key} 重复配置，已覆盖")
-            self._nodes[key] = item_cls(node)
+class ParserItem:
+    """单个解析器的运行时配置视图。"""
 
-    def __getattr__(self, name: str) -> ConfigNode:
+    def __init__(self, name: str, enabled: bool, values: Mapping[str, Any]):
+        self._name = name
+        self._enabled = enabled
+        self._values = dict(values)
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def enable(self) -> bool:
+        return self._enabled
+
+    def __getattr__(self, key: str) -> Any:
+        if key in self._values:
+            return self._values[key]
+        raise AttributeError(key)
+
+    def as_dict(self) -> dict[str, Any]:
+        return dict(self._values)
+
+
+class ParserConfig:
+    """解析器名称到运行时配置视图的只读容器。"""
+
+    def __init__(self, items: Iterable[ParserItem]):
+        self._nodes = {item.name: item for item in items}
+
+    def __getattr__(self, name: str) -> ParserItem:
         if name in self._nodes:
             return self._nodes[name]
         raise AttributeError(name)
@@ -146,67 +154,11 @@ class ConfigNodeContainer:
     def items(self):
         return self._nodes.items()
 
-
-# ================ 插件自定义配置 ==================
-
-
-class ParserItem(ConfigNode):
-    __template_key: str
-    enable: bool
-    use_proxy: bool
-    cookies: str | None
-    show_body_text: bool | None
-    use_original_image: bool | None
-    mixed_layout: bool | None
-    show_work_content: bool | None
-    text_max_length: int | None
-    video_send_mode: str | None
-    video_codec_list: list | None
-    video_quality: str | None
-    video_codec: str | None
-    video_format: str | None
-    block_pcdn: bool | None
-    metube_url: str | None
-    wait_timeout: int | None
-    delete_after_fetch: bool | None
-    nsfw: str | None
-    max_page: int | None
-
-    @property
-    def name(self) -> str:
-        return self._data.get("__template_key")
-
-
-class ParserConfig(ConfigNodeContainer):
-    acfun: ParserItem
-    allcpp: ParserItem
-    bilibili: ParserItem
-    douyin: ParserItem
-    instagram: ParserItem
-    kuaishou: ParserItem
-    metube: ParserItem
-    ncm: ParserItem
-    nga: ParserItem
-    nhentai: ParserItem
-    tiktok: ParserItem
-    twitter: ParserItem
-    weibo: ParserItem
-    xiaoheihe: ParserItem
-    zhihu: ParserItem
-    xhs: ParserItem
-    youtube: ParserItem
-    iwara: ParserItem
-    shipinhao: ParserItem
-    pixiv: ParserItem
-
-    def __init__(self, nodes: list[dict[str, Any]]):
-        super().__init__(nodes, item_cls=ParserItem)
-
     def platforms(self) -> list[str]:
-        return list(self._nodes.keys())
+        return list(self._nodes)
 
     def enabled_platforms(self) -> list[str]:
-        return [k for k, v in self._nodes.items() if getattr(v, "enable", True)]
+        return [name for name, item in self._nodes.items() if item.enable]
 
 
 class PluginConfig(ConfigNode):
@@ -234,8 +186,6 @@ class PluginConfig(ConfigNode):
 
     clean_cron: str
 
-    parsers_template: list[dict[str, Any]]
-
     _plugin_name = "astrbot_plugin_parser"
 
     def __init__(self, config: AstrBotConfig, context: Context):
@@ -260,27 +210,10 @@ class PluginConfig(ConfigNode):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cookie_dir = self.data_dir / "cookies"
         self.cookie_dir.mkdir(parents=True, exist_ok=True)
-        self.default_template_file = self.plugin_dir / "default_template.json"
+        self.parser_config_dir = self.data_dir / "parser_config"
 
-        # ---------- Parser ----------
-        if not self.parsers_template:
-            self.parsers_template[:] = self.load_parser_template(
-                self.default_template_file
-            )
-            self.save_config()
-
-        self.parser = ParserConfig(self.parsers_template)
-
-    @staticmethod
-    def load_parser_template(file: Path) -> list[dict[str, Any]]:
-        try:
-            with file.open(encoding="utf-8-sig") as f:
-                template = json.loads(f.read())
-                logger.info(f"[parser] 加载模板成功: {file}")
-                return template
-        except Exception as e:
-            logger.error(f"[parser] 加载模板失败: {e}")
-            return []
+        # 解析器注册完成后由 ParserRegistry 注入。
+        self.parser = ParserConfig(())
 
     def add_blacklist(self, umo: str):
         if umo not in self.blacklist:

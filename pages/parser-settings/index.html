@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>解析器配置</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>解析器配置</h1>
+      <nav>
+        <button data-tab="parsers">解析器</button>
+        <button data-tab="skins">皮肤包</button>
+      </nav>
+      <section id="parsers-panel">
+        <div id="parsers"></div>
+      </section>
+      <section id="skins-panel" hidden>
+        <p id="skin-message"></p>
+        <div id="skins"></div>
+      </section>
+      <pre id="status"></pre>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

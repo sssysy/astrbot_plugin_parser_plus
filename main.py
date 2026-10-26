@@ -6,8 +6,9 @@ import re
 from astrbot.api import logger
 from astrbot.api.event import filter
 from astrbot.api.star import Context, Star
+from astrbot.api.web import error_response, json_response, request
 from astrbot.core import AstrBotConfig
-from astrbot.core.message.components import At, Image, Json, Plain, Reply
+from astrbot.core.message.components import At, Json, Plain, Reply
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
@@ -20,7 +21,8 @@ from .core.config import PluginConfig
 from .core.debounce import Debouncer
 from .core.download import Downloader
 from .core.exception import ParseException
-from .core.parsers import BaseParser, BilibiliParser
+from .core.parser_settings import ParserSettingsService
+from .core.parsers import BaseParser, ParserRegistry
 from .core.playwright_install import install_playwright_chromium
 from .core.render import Renderer
 from .core.sender import MessageSender
@@ -53,13 +55,43 @@ class ParserPlugin(Star):
         self.parser_map: dict[str, BaseParser] = {}
         # 关键词 -> 正则 列表
         self.key_pattern_list: list[tuple[str, re.Pattern[str]]] = []
+        # 动态扫描得到的解析器注册中心
+        self.parser_registry = ParserRegistry(self.cfg, self.downloader)
+        self.parser_settings = ParserSettingsService(
+            self.parser_registry,
+            self.cfg.parser_config_dir,
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_parser/parser-settings/parsers",
+            self.page_list_parsers,
+            ["GET"],
+            "列出解析器配置",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_parser/parser-settings/parser/<name>",
+            self.page_save_parser,
+            ["POST"],
+            "保存解析器配置",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_parser/parser-settings/skins",
+            self.page_list_skins,
+            ["GET"],
+            "列出皮肤包",
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_parser/parser-settings/skin",
+            self.page_save_skin,
+            ["POST"],
+            "切换皮肤包",
+        )
 
     async def initialize(self):
         """加载、重载插件时触发"""
         # 校验渲染模板；Playwright 浏览器保持懒加载
         await self.renderer.initialize()
-        # 注册解析器
-        self._register_parser()
+        # 扫描并注册解析器
+        await self._register_parser()
 
     async def terminate(self):
         """插件卸载时触发"""
@@ -68,58 +100,70 @@ class ParserPlugin(Star):
         # 关下载器里的会话
         await self.downloader.close()
         # 关所有解析器里的会话 (去重后的实例)
-        unique_parsers = set(self.parser_map.values())
-        for parser in unique_parsers:
-            await parser.close_session()
+        await self.parser_registry.close()
         # 关缓存清理器
         await self.cleaner.stop()
 
-    def _register_parser(self):
-        """注册解析器（以 parser.enable 为唯一启用来源）"""
-        # 所有 Parser 子类
-        all_subclass = BaseParser.get_all_subclass()
-        enabled_platforms = set(self.cfg.parser.enabled_platforms())
+    async def _register_parser(self):
+        """扫描解析器目录并替换注册快照。"""
+        snapshot = await self.parser_registry.load()
+        self.parser_map = snapshot.parser_map
+        self.key_pattern_list = list(snapshot.key_pattern_list)
 
-        enabled_classes: list[type[BaseParser]] = []
-        enabled_names: list[str] = []
-        for cls in all_subclass:
-            platform_name = cls.platform.name
+        logger.debug(
+            f"[parser] 关键词-正则对已生成: "
+            f"{[kw for kw, _ in self.key_pattern_list]}"
+        )
 
-            if platform_name not in enabled_platforms:
-                logger.debug(f"[parser] 平台未启用或未配置: {platform_name}")
-                continue
+    @staticmethod
+    def _is_page_admin() -> bool:
+        return bool(request.username)
 
-            enabled_classes.append(cls)
-            enabled_names.append(platform_name)
+    async def page_list_parsers(self):
+        if not self._is_page_admin():
+            return error_response("unauthorized", status_code=403)
+        return json_response({"parsers": self.parser_settings.list_parsers()})
 
-            # 一个平台一个 parser 实例
-            parser = cls(self.cfg, self.downloader)
+    async def page_save_parser(self, name: str):
+        if not self._is_page_admin():
+            return error_response("unauthorized", status_code=403)
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("invalid payload", status_code=400)
+        enabled = payload.get("enabled")
+        values = payload.get("values", {})
+        if not isinstance(enabled, bool) or not isinstance(values, dict):
+            return error_response("invalid payload", status_code=400)
+        try:
+            await self.parser_settings.save_parser(
+                name,
+                enabled=enabled,
+                updates=values,
+                preserve_masked=True,
+            )
+        except KeyError:
+            return error_response("parser not found", status_code=404)
+        except ValueError as exc:
+            return error_response(str(exc), status_code=400)
+        return json_response({"saved": True, "reload_required": False})
 
-            # 关键词 → parser
-            for keyword, _ in cls._key_patterns:
-                self.parser_map[keyword] = parser
+    async def page_list_skins(self):
+        if not self._is_page_admin():
+            return error_response("unauthorized", status_code=403)
+        return json_response(self.parser_settings.list_skins())
 
-        logger.debug(f"启用平台: {'、'.join(enabled_names) if enabled_names else '无'}")
-
-        # -------- 关键词-正则表（统一生成） --------
-        patterns: list[tuple[str, re.Pattern[str]]] = []
-
-        for cls in enabled_classes:
-            for kw, pat in cls._key_patterns:
-                patterns.append((kw, re.compile(pat) if isinstance(pat, str) else pat))
-
-        # 长关键词优先，避免短词抢匹配
-        patterns.sort(key=lambda x: -len(x[0]))
-
-        self.key_pattern_list = patterns
-
-        logger.debug(f"[parser] 关键词-正则对已生成: {[kw for kw, _ in patterns]}")
-
-    def _get_parser_by_type(self, parser_type):
-        for parser in self.parser_map.values():
-            if isinstance(parser, parser_type):
-                return parser
-        raise ValueError(f"未找到类型为 {parser_type} 的 parser 实例")
+    async def page_save_skin(self):
+        if not self._is_page_admin():
+            return error_response("unauthorized", status_code=403)
+        payload = await request.json(default={})
+        name = payload.get("name") if isinstance(payload, dict) else None
+        if not isinstance(name, str):
+            return error_response("invalid skin", status_code=400)
+        try:
+            self.parser_settings.save_skin(name)
+        except ValueError as exc:
+            return error_response(str(exc), status_code=400)
+        return json_response({"saved": True, "reload_required": True})
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
@@ -328,16 +372,6 @@ class ParserPlugin(Star):
                 f"Playwright Chromium 安装失败（退出码 {result.returncode}），"
                 "请查看 AstrBot 日志。"
             )
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("登录B站", alias={"blogin", "登录b站"})
-    async def login_bilibili(self, event: AstrMessageEvent):
-        """扫码登录B站"""
-        parser: BilibiliParser = self._get_parser_by_type(BilibiliParser)  # type: ignore
-        qrcode = await parser.login.login_with_qrcode()
-        yield event.chain_result([Image.fromBytes(qrcode)])
-        async for msg in parser.login.check_qr_state():
-            yield event.plain_result(msg)
 
     def _match_parser(self, url: str):
         for keyword, pattern in self.key_pattern_list:

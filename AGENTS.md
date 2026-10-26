@@ -32,15 +32,17 @@
 astrbot_plugin_parser/
 ├── main.py                     # 插件入口、事件分发、命令、公开解析 API
 ├── metadata.yaml               # 插件元数据
-├── _conf_schema.json           # AstrBot WebUI 配置 Schema
-├── default_template.json       # 首次运行使用的 parser 配置模板
+├── _conf_schema.json           # 仅全局配置 Schema，不包含解析器配置
 ├── requirements.txt            # 第三方依赖
 ├── README.md
 ├── CHANGELOG.md
+├── pages/
+│   └── parser-settings/        # 解析器启停/参数与皮肤切换预留页
 ├── core/
 │   ├── config.py               # ConfigNode、ParserConfig、PluginConfig
 │   ├── data.py                 # Description、MediaContent 等模型
 │   ├── download.py             # 共享 aiohttp 下载、yt-dlp、媒体缓存
+│   ├── parser_settings.py      # 插件 Page 的配置与皮肤设置服务
 │   ├── render/                 # Jinja2 + Playwright/T2I 卡片渲染
 │   │   ├── __init__.py         # Renderer、浏览器生命周期与远程渲染
 │   │   └── default/            # HTML 卡片模板与内联样式
@@ -54,18 +56,36 @@ astrbot_plugin_parser/
 │   ├── constants.py            # 公共请求头
 │   ├── resources/              # 字体、按钮、平台 logo 等静态资源
 │   └── parsers/
-│       ├── __init__.py         # parser 模块导入与注册入口
+│       ├── __init__.py         # 注册中心公开入口，不逐个导入平台
 │       ├── base.py             # BaseParser、handle、结果与下载辅助方法
-│       ├── example.py          # 解析器示例
-│       └── ...                 # 各平台解析器，复杂平台可使用子包
+│       ├── config.py           # 解析器 config.json 定义与用户配置读写
+│       ├── registry.py         # 目录扫描、校验、实例化与原子注册
+│       └── douyin/             # 当前唯一迁移完成的新版解析器包
+│           ├── __init__.py     # 导出 PARSER
+│           ├── config.json     # 默认值与页面字段定义
+│           ├── parser.py       # 解析入口
+│           ├── video.py        # 视频/图文数据结构与选择逻辑
+│           ├── live.py
+│           ├── comment.py
+│           └── slides.py
+├── docs/
+│   └── parser_old/             # 旧解析器参考归档，不参与导入或兼容
 └── tests/                      # 本地测试
 ```
 
 目录规则：
 
 - `core/__init__.py` 保持空包标记，不承载业务逻辑。
-- `core/parsers/__init__.py` 是解析器注册入口；新增 parser 必须在此导入并加入 `__all__`。
-- 单文件平台放在 `core/parsers/<name>.py`；需要多个模块时使用 `core/parsers/<name>/`。
+- `core/parsers/__init__.py` 只负责导出注册基础设施，不逐个导入平台，也不维护 `__all__` 平台清单。
+- 每个解析器必须是 `core/parsers/<name>/` 包，并在包根提供 `config.json` 与 `__init__.py`。
+- `__init__.py` 必须导出 `PARSER`（`BaseParser` 子类）；不得在这里启动网络请求或长时间阻塞初始化。
+- 注册中心只扫描 `core/parsers/*/` 的直接子目录，并只导入各包的 `__init__.py`；包内工具模块由包自行导入。
+- 解析器目录名、`config.json.name`、`PARSER.platform.name` 必须三者一致。
+- `@handle()` 关键词全局唯一；重复关键词必须拒绝注册并记录冲突平台，不得静默覆盖。
+- 同一平台的 `__init__.py` 只保留入口与简单路由；复杂解析逻辑按职责拆到同包模块，避免高耦合。
+- 解析器包自带 `utils.py` 仅放本平台工具；跨平台工具放 `core/`。
+- `docs/parser_old/` 只保存供重写参考的旧代码，不是兼容层；不得导入、扫描、注册或恢复其任何旧平台实现。
+- 新版解析器必须按当前 `core/parsers/<name>/` 架构重新实现，不得以复制或包装旧解析器的方式恢复功能。
 - 跨平台通用代码放 `core/` 下的公共模块，禁止复制到多个 parser。
 - 测试、缓存、截图和临时产物不得写入 `core/resources/`。
 - 不新增 `*_SUMMARY.md` 之类的过程报告或临时说明文件。
@@ -78,7 +98,6 @@ astrbot_plugin_parser/
 python -m pytest -q
 python -m compileall -q main.py core tests
 python -m json.tool _conf_schema.json > $null
-python -m json.tool default_template.json > $null
 ```
 
 可用时再运行：
@@ -91,7 +110,7 @@ ruff check main.py core tests
 要求：
 
 - 修改 Python 后至少通过测试和 `compileall`。
-- 修改 `_conf_schema.json` 或 `default_template.json` 后必须校验 JSON。
+- 修改 `_conf_schema.json` 或解析器 `config.json` 后必须校验 JSON。
 - 修复 bug 时优先补最小回归测试，不依赖真实网络和真实 Cookie。
 - 不为了通过检查而大范围格式化无关文件。
 
@@ -130,14 +149,13 @@ ruff check main.py core tests
 每个 parser 必须：
 
 - 继承 `BaseParser`。
-- 声明 `platform: ClassVar[Platform]`，`name` 对应配置模板的 `__template_key`。
+- 声明 `platform: ClassVar[Platform]`，`name` 对应包目录名和 `config.json.name`。
 - 在 `__init__` 中调用 `super().__init__(config, downloader)`。
-- 设置 `self.mycfg = config.parser.<platform_name>`，避免直接散读原始配置。
+- 使用基类提供的 `self.mycfg` 读取本平台配置，不再手写 `config.parser.<platform_name>`。
 - 使用 `@handle(keyword, pattern)` 注册链接入口。
-- 在 `core/parsers/__init__.py` 中导入并加入 `__all__`。
-- 在 `core/config.py` 的 `ParserConfig` 中补充类型声明。
-- 在 `_conf_schema.json` 的 `parsers_template.templates` 中补充配置。
-- 需要默认启用时，才同步加入 `default_template.json`；仅加入 Schema 不会自动启用 parser。
+- 在包内 `__init__.py` 导出 `PARSER = FooParser`，并在 `config.json` 中声明默认值和页面字段。
+- 不修改 `core/config.py`、`_conf_schema.json` 或 `core/parsers/__init__.py` 来注册新平台。
+- 需要默认启用时，在 `config.json` 设置 `default_enabled`；首次生成用户配置时生效。
 
 解析实现要求：
 
@@ -159,7 +177,6 @@ class FooParser(BaseParser):
 
     def __init__(self, config: PluginConfig, downloader: Downloader):
         super().__init__(config, downloader)
-        self.mycfg = config.parser.foo
 
     @handle("foo.com", r"foo\.com/post/(?P<post_id>\d+)")
     async def _parse_post(self, searched: Match[str]):
@@ -173,6 +190,14 @@ class FooParser(BaseParser):
         )
         # 卡片发送后才创建最终媒体下载任务
         return self.parse_result([info.video, *info.images])
+```
+
+包入口：
+
+```python
+from .parser import FooParser
+
+PARSER = FooParser
 ```
 
 ## 7. 数据模型与结果
@@ -218,18 +243,32 @@ class FooParser(BaseParser):
 
 ## 10. 配置与注册纪律
 
-- 配置入口是 `_conf_schema.json`，运行时强类型封装在 `core/config.py`。
-- `ParserItem` 的公共字段要与至少一个 parser 的实际需求对应，不保留废弃字段。
-- 新增 parser 配置时必须同步检查：Schema、`ParserConfig` 类型声明、`default_template.json`、parser 的 `self.mycfg`。
-- `parsers_template` 为空时才会从 `default_template.json` 生成默认配置；已有用户配置不会被自动重写。
-- `enable` 是 parser 是否启用的唯一来源，不在代码中另设启用开关。
-- 不添加配置兼容层，不为旧字段维护隐蔽 fallback。
+- `_conf_schema.json` 只保留插件全局配置；解析器配置、启停和皮肤设置由插件 Page 负责。
+- 每个解析器包内的 `config.json` 只描述 `schema_version`、`name`、`display_name`、`default_enabled` 和 `fields`，不得写入真实 Cookie 或用户值。
+- 用户实际配置固定写入 `plugin_data/astrbot_plugin_parser/parser_config/<name>.json`，结构为 `schema_version`、`enabled`、`values`。
+- 禁止向 `core/parsers/<name>/config.json` 回写用户配置；源码目录必须可只读运行。
+- `enabled` 是 parser 是否启用的唯一来源；页面保存后由注册中心重建运行快照。
+- 解析器配置字段由各包 `config.json` 自描述，页面按 `fields` 动态渲染，不在前端硬编码平台字段。
+- 敏感字段必须在 `config.json` 标记 `secret: true`，列表接口不得返回其值。
+- 新增目录或修改 Python 代码仍需重载插件；仅修改启停和参数时允许页面保存后立即生效。
+- 不添加旧 `parsers_template`/`default_template.json` 兼容层；本版本已明确丢弃旧解析器配置。
 - 只注册明确需要的命令、别名和 parser。
 - 新增命令别名时使用 `alias={...}`，不堆叠多个命令装饰器。
+- 动态扫描只负责链接解析器与关键词；平台命令继续在 `main.py` 静态声明，不使用已废弃的 `context.register_commands()`。
+- 扩展插件 `astrbot_plugin_parser_extensions` 不在本次兼容范围；不得为其保留旧内部字段的隐蔽兼容分支。
 - 不恢复已删除的平台、旧路径 re-export 或废弃前缀。
-- 修改默认模板时要考虑已有用户和首次安装用户的行为差异。
 
-## 11. 安全与日志
+## 11. 插件 Page 与皮肤预留
+
+- 页面入口固定为 `pages/parser-settings/index.html`，页面只通过 `window.AstrBotPluginPage` 调用插件 Web API。
+- 页面接口必须校验 Dashboard 登录用户；未登录请求返回 403。
+- 页面可以读取解析器定义和安全字段值，但不得读取或回显敏感值。
+- 页面提供的解析器列表、字段类型、选项与默认值全部来自各包 `config.json`。
+- 页面保存成功后调用注册中心刷新快照；新增/删除解析器目录仍由 AstrBot 插件重载完成。
+- 皮肤切换当前只保留数据模型和页面页签；首版仅支持内置默认皮肤，不允许上传、在线市场或执行任意模板代码。
+- 后续皮肤包必须使用独立目录与 manifest，经 `Renderer` 加载和校验，不得让页面直接指定任意文件路径。
+
+## 12. 安全与日志
 
 - 禁止提交或记录真实 Cookie、Token、密码、二维码登录凭证和完整原始响应。
 - Cookie 文件只能放在插件数据目录。
@@ -238,7 +277,7 @@ class FooParser(BaseParser):
 - 禁止静默吞掉未知异常后返回假数据；可恢复异常应降级并记录，未知异常应转换后上抛或记录。
 - 新增外链请求前检查 URL 来源和 host 限制，避免把任意用户输入当成可信下载地址。
 
-## 12. 代码风格与变更边界
+## 13. 代码风格与变更边界
 
 - 遵循仓库根 `AGENTS.md` 的通用 AstrBot 规范；本文件只补充插件专属约束。
 - 使用 `pathlib.Path`，不拼接字符串路径。
@@ -246,10 +285,10 @@ class FooParser(BaseParser):
 - 不为了“整洁”拆分线性逻辑；只有高复用或明显复杂时才提取 helper。
 - 不顺手重构无关模块，不改变既有函数结构，除非修改本身需要。
 - 保留现有公开入口：`parse_url()`、`parse_and_send()`、`llm_parse_media_url()`。
-- `core/parsers/__init__.py` 的聚合导入是注册机制，不能被当作普通 re-export 清理掉。
+- `core/parsers/__init__.py` 只导出注册基础设施；平台注册由 `core/parsers/registry.py` 扫描完成。
 - 不未经确认增加新依赖、外部服务、数据库、AI 工具或平台兼容层。
 
-## 13. 测试要求
+## 14. 测试要求
 
 - 测试优先覆盖纯逻辑：URL 提取、Cookie 域/路径匹配、parser 正则、结果结构、发送策略。
 - 网络测试必须 mock session 或使用 `monkeypatch`，不依赖真实站点。
@@ -258,13 +297,15 @@ class FooParser(BaseParser):
 - 修改 `extract_json_url()` 时，至少覆盖明确的 JSON 字段和兜底扫描。
 - 修改下载、渲染或发送边界时，检查模板转义、资源路径限制、本地/远程渲染失败降级和 Playwright 资源释放。
 
-## 14. 自检清单
+## 15. 自检清单
 
 - [ ] QQ 空间、QZone、SnowLuma 相关代码没有被重新引入。
 - [ ] 自动解析仍然只有一个 ALL 入口。
-- [ ] 新 parser 已在 `core/parsers/__init__.py` 注册。
-- [ ] 新 parser 的 `platform.name`、配置模板 key 和 `ParserConfig` 声明一致。
-- [ ] 新 parser 已在 `_conf_schema.json` 中配置；需要默认启用时也更新了 `default_template.json`。
+- [ ] 新 parser 已是 `core/parsers/<name>/` 包，并在 `__init__.py` 导出 `PARSER`。
+- [ ] 目录名、`config.json.name`、`platform.name` 三者一致。
+- [ ] 新 parser 的默认值与页面字段只写在包内 `config.json`，没有进入 `_conf_schema.json`。
+- [ ] 用户配置只写入 `plugin_data/astrbot_plugin_parser/parser_config/`。
+- [ ] 旧解析器已归档到 `docs/parser_old/` 且不会参与导入。
 - [ ] `@handle()` 关键词唯一，正则只匹配明确 host/path。
 - [ ] API 请求异步、有限重试，媒体下载经过 `Downloader`。
 - [ ] parser 通过 `send_desc_*` 发送描述，并返回有序内容列表。

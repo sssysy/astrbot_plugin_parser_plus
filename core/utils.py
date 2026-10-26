@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import re
+from uuid import uuid4
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, TypeVar
@@ -102,6 +103,61 @@ async def merge_av(
     cleanup = [p for p in (v_path, a_path) if p != output_path]
     await asyncio.gather(*(safe_unlink(p) for p in cleanup))
     logger.info(f"Merged {output_path.name}, {fmt_size(output_path)}")
+
+
+async def merge_to_live_mp4(
+    *,
+    image_path: Path,
+    video_path: Path,
+    output_path: Path,
+    bgm_path: Path | None = None,
+) -> Path:
+    """把静态底图和实况视频合成为可播放的实况 MP4。"""
+    temp_path = output_path.with_name(
+        f".{output_path.stem}.{uuid4().hex}.tmp{output_path.suffix}"
+    )
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(video_path),
+        "-loop",
+        "1",
+        "-i",
+        str(image_path),
+    ]
+    if bgm_path is not None:
+        cmd.extend(("-i", str(bgm_path)))
+    cmd.extend(
+        [
+            "-map",
+            "2:a:0" if bgm_path is not None else "0:a?",
+            "-filter_complex",
+            "[1:v][0:v]scale2ref=iw:ih[bg][fg];"
+            "[bg][fg]overlay=shortest=1,format=yuv420p[v]",
+            "-map",
+            "[v]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-c:a",
+            "aac",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(temp_path),
+        ]
+    )
+    try:
+        await exec_ffmpeg_cmd(cmd)
+        await asyncio.to_thread(temp_path.replace, output_path)
+    finally:
+        await safe_unlink(temp_path)
+    return output_path
 
 
 async def merge_av_h264(
@@ -259,6 +315,13 @@ def fmt_size(file_path: Path) -> str:
         video_path (Path): 视频路径
     """
     return f"大小: {file_path.stat().st_size / 1024 / 1024:.2f} MB"
+
+
+def format_num(value: int | None) -> str:
+    """把计数格式化为抖音卡片使用的短文本。"""
+    if value is None:
+        return "0"
+    return str(value) if value < 10000 else f"{value / 10000:.1f}万"
 
 
 def generate_file_name(url: str, default_suffix: str = "") -> str:

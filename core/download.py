@@ -1,5 +1,5 @@
 from asyncio import Task, TimeoutError, create_task, gather, sleep, to_thread
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Collection, Coroutine, Sequence
 from functools import wraps
 from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
@@ -71,6 +71,7 @@ class Downloader:
         self.default_headers: dict[str, str] = COMMON_HEADER.copy()
         # 视频信息缓存
         self.info_cache: LimitedSizeDict[str, VideoInfo] = LimitedSizeDict()
+        self._active_downloads: dict[Path, Task[Path]] = {}
         # 用于流式下载的客户端
         self.client = ClientSession(
             timeout=ClientTimeout(total=self.cfg.download_timeout)
@@ -88,67 +89,119 @@ class Downloader:
         file_name: str | None = None,
         headers: dict[str, str] | None = None,
         proxy: str | None | object = ...,
+        fallback_urls: Sequence[str] | None = None,
+        retry_http_statuses: Collection[int] = (),
     ) -> Path:
         """流式下载"""
-        if not file_name:
+        headers = headers or self.default_headers
+        candidates = [item for item in (url, *(fallback_urls or ())) if item]
+        if file_name is None:
             file_name = generate_file_name(url)
         file_path = self.cfg.cache_dir / file_name
-        # 如果文件存在，则直接返回
         if file_path.exists():
             return file_path
-        headers = headers or self.default_headers
+        if active := self._active_downloads.get(file_path):
+            return await active
+        task = create_task(
+            self._download_candidates(
+                candidates,
+                file_path=file_path,
+                headers=headers,
+                proxy=proxy,
+                retry_http_statuses=retry_http_statuses,
+            )
+        )
+        self._active_downloads[file_path] = task
+        try:
+            return await task
+        finally:
+            self._active_downloads.pop(file_path, None)
+
+    async def _download_candidates(
+        self,
+        candidates: list[str],
+        *,
+        file_path: Path,
+        headers: dict[str, str],
+        proxy: str | None | object,
+        retry_http_statuses: Collection[int],
+    ) -> Path:
         retries = self.cfg.download_retry_times
+        last_error: Exception | None = None
         for attempt in range(retries + 1):
+            current_url = candidates[attempt % len(candidates)]
             try:
-                async with self.client.get(
-                    url, headers=headers, allow_redirects=True, proxy=proxy
-                ) as response:
-                    if response.status >= 400:
-                        raise ClientError(f"HTTP {response.status} {response.reason}")
-                    content_length = response.content_length
-                    max_bytes = self.max_size * 1024 * 1024
-
-                    if content_length == 0:
-                        logger.warning(f"媒体 url: {url}, 大小为 0, 取消下载")
-                        raise ZeroSizeException
-                    if content_length and content_length > max_bytes:
-                        logger.warning(
-                            f"媒体 url: {url} 大小 {content_length / 1024 / 1024:.2f} MB 超过 {self.max_size} MB, 取消下载"
-                        )
-                        raise SizeLimitException
-
-                    downloaded = 0
-                    with self.get_progress_bar(file_name, content_length) as bar:
-                        async with aiofiles.open(file_path, "wb") as file:
-                            async for chunk in response.content.iter_chunked(
-                                1024 * 1024
-                            ):
-                                downloaded += len(chunk)
-                                if downloaded > max_bytes:
-                                    raise SizeLimitException
-                                await file.write(chunk)
-                                bar.update(len(chunk))
-
-                    if downloaded == 0:
-                        logger.warning(f"媒体 url: {url}, 实际大小为 0, 取消下载")
-                        raise ZeroSizeException
-                    if content_length and downloaded < content_length:
-                        raise ClientError(
-                            f"HTTP payload incomplete {downloaded}/{content_length}"
-                        )
-
+                await self._stream_once(
+                    current_url,
+                    file_path=file_path,
+                    headers=headers,
+                    proxy=proxy,
+                    retry_http_statuses=retry_http_statuses,
+                )
                 return file_path
             except (ZeroSizeException, SizeLimitException):
                 await safe_unlink(file_path)
                 raise
             except (ClientError, TimeoutError) as exc:
+                last_error = exc
                 await safe_unlink(file_path)
                 if attempt < retries:
                     await sleep(1 + attempt)
                     continue
-                logger.exception(f"下载失败 | url: {url}, file_path: {file_path}")
+                logger.exception(
+                    f"下载失败 | url: {current_url}, file_path: {file_path}"
+                )
                 raise DownloadException("媒体下载失败") from exc
+        logger.warning(
+            f"下载失败 | url: {candidates[0]}, error={last_error}"
+        )
         raise DownloadException("媒体下载失败")
+
+    async def _stream_once(
+        self,
+        url: str,
+        *,
+        file_path: Path,
+        headers: dict[str, str],
+        proxy: str | None | object,
+        retry_http_statuses: Collection[int],
+    ) -> None:
+        async with self.client.get(
+            url, headers=headers, allow_redirects=True, proxy=proxy
+        ) as response:
+            if response.status in retry_http_statuses:
+                raise ClientError(f"HTTP {response.status} {response.reason}")
+            if response.status >= 400:
+                raise ClientError(f"HTTP {response.status} {response.reason}")
+            content_length = response.content_length
+            max_bytes = self.max_size * 1024 * 1024
+
+            if content_length == 0:
+                logger.warning(f"媒体 url: {url}, 大小为 0, 取消下载")
+                raise ZeroSizeException
+            if content_length and content_length > max_bytes:
+                logger.warning(
+                    f"媒体 url: {url} 大小 {content_length / 1024 / 1024:.2f} MB 超过 {self.max_size} MB, 取消下载"
+                )
+                raise SizeLimitException
+
+            downloaded = 0
+            with self.get_progress_bar(file_path.name, content_length) as bar:
+                async with aiofiles.open(file_path, "wb") as file:
+                    async for chunk in response.content.iter_chunked(1024 * 1024):
+                        downloaded += len(chunk)
+                        if downloaded > max_bytes:
+                            raise SizeLimitException
+                        await file.write(chunk)
+                        bar.update(len(chunk))
+
+            if downloaded == 0:
+                logger.warning(f"媒体 url: {url}, 实际大小为 0, 取消下载")
+                raise ZeroSizeException
+            if content_length and downloaded < content_length:
+                raise ClientError(
+                    f"HTTP payload incomplete {downloaded}/{content_length}"
+                )
 
     @staticmethod
     def get_progress_bar(desc: str, total: int | None = None) -> tqdm:
@@ -179,11 +232,18 @@ class Downloader:
         video_name: str | None = None,
         headers: dict[str, str] | None = None,
         proxy: str | None = None,
+        fallback_urls: Sequence[str] | None = None,
+        retry_http_statuses: Collection[int] = (),
     ) -> Path:
         if video_name is None:
             video_name = generate_file_name(url, ".mp4")
         return await self.streamd(
-            url, file_name=video_name, headers=headers, proxy=proxy
+            url,
+            file_name=video_name,
+            headers=headers,
+            proxy=proxy,
+            fallback_urls=fallback_urls,
+            retry_http_statuses=retry_http_statuses,
         )
 
     @auto_task
@@ -194,11 +254,18 @@ class Downloader:
         audio_name: str | None = None,
         headers: dict[str, str] | None = None,
         proxy: str | None = None,
+        fallback_urls: Sequence[str] | None = None,
+        retry_http_statuses: Collection[int] = (),
     ) -> Path:
         if audio_name is None:
             audio_name = generate_file_name(url, ".mp3")
         return await self.streamd(
-            url, file_name=audio_name, headers=headers, proxy=proxy
+            url,
+            file_name=audio_name,
+            headers=headers,
+            proxy=proxy,
+            fallback_urls=fallback_urls,
+            retry_http_statuses=retry_http_statuses,
         )
 
     @auto_task
@@ -209,11 +276,18 @@ class Downloader:
         file_name: str | None = None,
         headers: dict[str, str] | None = None,
         proxy: str | None | object = ...,
+        fallback_urls: Sequence[str] | None = None,
+        retry_http_statuses: Collection[int] = (),
     ) -> Path:
         if file_name is None:
             file_name = generate_file_name(url, ".zip")
         return await self.streamd(
-            url, file_name=file_name, headers=headers, proxy=proxy
+            url,
+            file_name=file_name,
+            headers=headers,
+            proxy=proxy,
+            fallback_urls=fallback_urls,
+            retry_http_statuses=retry_http_statuses,
         )
 
     @auto_task
@@ -224,10 +298,19 @@ class Downloader:
         img_name: str | None = None,
         headers: dict[str, str] | None = None,
         proxy: str | None | object = ...,
+        fallback_urls: Sequence[str] | None = None,
+        retry_http_statuses: Collection[int] = (),
     ) -> Path:
         if img_name is None:
             img_name = generate_file_name(url, ".jpg")
-        return await self.streamd(url, file_name=img_name, headers=headers, proxy=proxy)
+        return await self.streamd(
+            url,
+            file_name=img_name,
+            headers=headers,
+            proxy=proxy,
+            fallback_urls=fallback_urls,
+            retry_http_statuses=retry_http_statuses,
+        )
 
     async def download_imgs_without_raise(
         self,

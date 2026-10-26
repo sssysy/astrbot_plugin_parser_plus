@@ -2,7 +2,14 @@
 
 from abc import ABC
 from asyncio import Task, TimeoutError, sleep
-from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Collection,
+    Coroutine,
+    Iterable,
+    Sequence,
+)
 from contextvars import ContextVar
 from pathlib import Path
 from re import Match, Pattern, compile
@@ -21,6 +28,7 @@ from ..data import (
     FileContent,
     GraphicsContent,
     ImageContent,
+    LivePhotoContent,
     MediaContent,
     Metric,
     Platform,
@@ -30,6 +38,7 @@ from ..data import (
 )
 from ..download import Downloader
 from ..exception import ParseException, RedirectException
+from ..utils import merge_to_live_mp4
 
 T = TypeVar("T", bound="BaseParser")
 HandlerFunc = Callable[[T, Match[str]], Coroutine[Any, Any, list[MediaContent]]]
@@ -270,14 +279,16 @@ class BaseParser:
         url: str | None = None,
         extra: dict[str, Any] | None = None,
         metrics: Iterable[Metric] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         """发送视频描述卡片。"""
         if _DESCRIPTION_SINK.get() is None:
             return
+        request_headers = headers or self.headers
         cover_task = cover
         if isinstance(cover, str):
             cover_task = self.downloader.download_img(
-                cover, headers=self.headers, proxy=self.proxy
+                cover, headers=request_headers, proxy=self.proxy
             )
         description = Description(
             platform=self.platform,
@@ -380,6 +391,8 @@ class BaseParser:
         cover_url: str | None = None,
         duration: float = 0.0,
         headers: dict[str, str] | None = None,
+        fallback_urls: Sequence[str] | None = None,
+        retry_http_statuses: Collection[int] = (),
     ):
         """创建视频内容"""
         cover_task = None
@@ -395,13 +408,82 @@ class BaseParser:
 
             async def load_video() -> Path:
                 return await self.downloader.download_video(
-                    url, headers=request_headers, proxy=proxy
+                    url,
+                    headers=request_headers,
+                    proxy=proxy,
+                    fallback_urls=fallback_urls,
+                    retry_http_statuses=retry_http_statuses,
                 )
 
             content.set_loader(load_video)
             return content
 
         return VideoContent(url_or_task, cover_task, duration)
+
+    def create_live_photo_content(
+        self,
+        video_url: str,
+        image_url: str,
+        *,
+        cover_url: str | None = None,
+        duration: float = 0.0,
+        bgm_url: str | None = None,
+        headers: dict[str, str] | None = None,
+        fallback_urls: Sequence[str] | None = None,
+        retry_http_statuses: Collection[int] = (),
+        loop: int = 3,
+    ) -> LivePhotoContent:
+        """创建 Live Photo 内容，实际合成在最终发送阶段执行。"""
+        request_headers = headers or self.headers
+        proxy = self.proxy
+        cover_task = None
+        if cover_url:
+            cover_task = self.downloader.download_img(
+                cover_url, headers=request_headers, proxy=proxy
+            )
+        content = LivePhotoContent(
+            path_task=None,
+            image_path_task=None,
+            cover=cover_task,
+            duration=duration,
+            loop=loop,
+        )
+
+        async def load_live_photo() -> Path:
+            video_path = await self.downloader.download_video(
+                video_url,
+                headers=request_headers,
+                proxy=proxy,
+                fallback_urls=fallback_urls,
+                retry_http_statuses=retry_http_statuses,
+            )
+            try:
+                image_path = await self.downloader.download_img(
+                    image_url, headers=request_headers, proxy=proxy
+                )
+                bgm_path = None
+                if bgm_url:
+                    bgm_path = await self.downloader.download_audio(
+                        bgm_url, headers=request_headers, proxy=proxy
+                    )
+                output = video_path.with_name(f"{video_path.stem}_live.mp4")
+                if output.exists():
+                    return output
+                return await merge_to_live_mp4(
+                    image_path=image_path,
+                    video_path=video_path,
+                    output_path=output,
+                    bgm_path=bgm_path,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[抖音] Live Photo 合成失败，回退实况原视频 | "
+                    f"error_type={type(exc).__name__}"
+                )
+                return video_path
+
+        content.set_loader(load_live_photo)
+        return content
 
     def create_video_content_by_task(
         self,

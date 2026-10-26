@@ -118,6 +118,28 @@ class DynamicContent(MediaContent):
 
 
 @dataclass(repr=False, slots=True)
+class LivePhotoContent(MediaContent):
+    """Live Photo：静态底图 + 可播放的实况视频。"""
+
+    image_path_task: Path | Task[Path] | None = None
+    """静态底图"""
+    cover: Path | Task[Path] | None = None
+    """发送前的封面"""
+    duration: float = 0.0
+    """时长 单位: 秒"""
+    loop: int = 3
+    """循环次数"""
+
+    async def get_image_path(self) -> Path | None:
+        if self.image_path_task is None:
+            return None
+        if isinstance(self.image_path_task, Path):
+            return self.image_path_task
+        self.image_path_task = await self.image_path_task
+        return self.image_path_task
+
+
+@dataclass(repr=False, slots=True)
 class GraphicsContent(MediaContent):
     """图文内容 渲染时文字在前 图片在后"""
 

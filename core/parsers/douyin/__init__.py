@@ -1,6 +1,5 @@
 import re
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 from urllib.parse import urlparse
 
 import msgspec
@@ -10,26 +9,30 @@ from astrbot.api import logger
 
 from ...config import PluginConfig
 from ...cookie import CookieJar
+from ...data import Author, MediaContent, Metric
+from ...utils import format_num
 from ..base import BaseParser, Downloader, ParseException, Platform, handle
-
-if TYPE_CHECKING:
-    from ...data import MediaContent
-
-
-@dataclass(slots=True)
-class ProbedVideo:
-    url: str
-    size: int
-    headers: dict[str, str]
+from .comment import Comment, decode_comments
+from .live import Room
+from .video import Aweme, SelectedVideo, decode_aweme, select_video
 
 
 class DouyinParser(BaseParser):
-    # 平台信息
     platform: ClassVar[Platform] = Platform(name="douyin", display_name="抖音")
-    PLAY_RATIOS: ClassVar[tuple[str, ...]] = ("1080p", "720p", "540p", "360p")
     TTWID_REGISTER_URL: ClassVar[str] = (
         "https://ttwid.bytedance.com/ttwid/union/register/"
     )
+    DETAIL_URL: ClassVar[str] = "https://www.douyin.com/aweme/v1/web/aweme/detail/"
+    COMMENT_URL: ClassVar[str] = "https://www.douyin.com/aweme/v1/web/comment/list/"
+    LIVE_URL: ClassVar[str] = "https://live.douyin.com/webcast/room/web/enter/"
+    WEB_RID_RE: ClassVar[re.Pattern[str]] = re.compile(
+        r'\\"webRid\\":\\"(\d+)\\"'
+    )
+    ROUTER_DATA_RE: ClassVar[re.Pattern[str]] = re.compile(
+        r"window\._ROUTER_DATA\s*=\s*(.*?)</script>",
+        flags=re.DOTALL,
+    )
+    RETRYABLE_STATUSES: ClassVar[frozenset[int]] = frozenset({460})
 
     def __init__(self, config: PluginConfig, downloader: Downloader):
         super().__init__(config, downloader)
@@ -37,8 +40,14 @@ class DouyinParser(BaseParser):
         self.cookiejar = CookieJar(config, self.mycfg, domain="douyin.com")
         self._set_cookies()
 
-    def _set_cookies(self, cookies_str: str = ""):
-        """设置cookie到请求头"""
+    @property
+    def media_headers(self) -> dict[str, str]:
+        headers = self.ios_headers.copy()
+        headers.pop("Cookie", None)
+        headers["Referer"] = "https://www.douyin.com/"
+        return headers
+
+    def _set_cookies(self, cookies_str: str = "") -> None:
         cookies_str = cookies_str or self.cookiejar.cookies_str
         if cookies_str:
             self.ios_headers["Cookie"] = cookies_str
@@ -70,358 +79,389 @@ class DouyinParser(BaseParser):
         url = f"https://{searched.group(0)}"
         return await self.parse_with_redirect(url)
 
+    @handle("webcast.amemv.com", r"douyin/webcast/reflow/(?P<room_id>\d+)")
+    async def _parse_live_by_room_id(self, searched: re.Match[str]):
+        room_id = searched.group("room_id")
+        await self.ensure_ttwid()
+        headers = self._sync_headers_for_url("https://webcast.amemv.com/")
+        async with self.session.get(
+            f"https://webcast.amemv.com/douyin/webcast/reflow/{room_id}",
+            headers=headers,
+        ) as resp:
+            if resp.status >= 400:
+                raise ParseException("抖音直播页访问失败")
+            html = await resp.text()
+        if matched := self.WEB_RID_RE.search(html):
+            return await self._parse_live(matched.group(1))
+        raise ParseException("提取抖音直播间 ID 失败")
+
+    @handle("live.douyin.com", r"live\.douyin\.com/(?P<rid>\d+)")
+    async def _parse_live(self, searched: re.Match[str] | str):
+        rid = searched if isinstance(searched, str) else searched.group("rid")
+        await self.ensure_ttwid()
+        headers = self._sync_headers_for_url("https://live.douyin.com/")
+        headers["Referer"] = f"https://live.douyin.com/{rid}"
+        params = {
+            "aid": 6383,
+            "device_platform": "web",
+            "browser_language": "zh-CN",
+            "browser_platform": "Win32",
+            "browser_name": "Chrome",
+            "browser_version": "95.0.4638.69",
+            "web_rid": rid,
+        }
+        async with self.session.get(
+            self.LIVE_URL, params=params, headers=headers
+        ) as resp:
+            if resp.status >= 400:
+                raise ParseException("解析抖音直播失败，可能直播间不存在")
+            payload = await resp.json(content_type=None)
+        rooms = (
+            (payload.get("data") or {}).get("data")
+            if isinstance(payload, dict)
+            else None
+        )
+        if not rooms:
+            raise ParseException("获取抖音直播间信息失败")
+        room = msgspec.convert(rooms[0], type=Room)
+        cover_url = room.cover.url_list[-1] if room.cover.url_list else None
+        author = self.create_author(
+            room.owner.nickname,
+            room.owner.avatar_thumb.url_list[-1]
+            if room.owner.avatar_thumb.url_list
+            else None,
+            uid=room.owner.id_str,
+            headers=self.media_headers,
+        )
+        metrics = [
+            Metric(
+                icon=None,
+                label="观看",
+                value=format_num(int(room.room_view_stats.display_value or 0)),
+            ),
+            Metric(
+                icon=None,
+                label="点赞",
+                value=format_num(int(room.like_count or 0)),
+            ),
+        ]
+        contents: list[MediaContent] = []
+        if cover_url:
+            contents.extend(
+                self.create_image_contents([cover_url], headers=self.media_headers)
+            )
+        status = "直播中" if room.status == 2 else "未开播"
+        if not room.title:
+            room.title = status
+        await self.send_desc_common(
+            room.title,
+            author,
+            contents,
+            text=status,
+            url=f"https://live.douyin.com/{rid}",
+            metrics=metrics,
+        )
+        return self.parse_result(contents)
+
     # https://www.douyin.com/video/7521023890996514083
     # https://www.douyin.com/note/7469411074119322899
-    @handle("", r"(?<![A-Za-z0-9_/=:%?&.-])(?P<vid>\d{18,20})(?!\d)")
     @handle("aweme_id", r"aweme_id[=:/\s]+(?P<vid>\d{10,})")
+    @handle("modal_id", r"modal_id=(?P<vid>\d{10,})")
     @handle("aweme", r"aweme/(?P<vid>\d{10,})")
-    @handle("douyin", r"douyin\.com/(?P<ty>video|note)/(?P<vid>\d+)")
-    @handle("iesdouyin", r"iesdouyin\.com/share/(?P<ty>slides|video|note)/(?P<vid>\d+)")
+    @handle("douyin", r"douyin\.com/(?P<ty>video|note|article)/(?P<vid>\d+)")
+    @handle(
+        "iesdouyin",
+        r"iesdouyin\.com/share/(?P<ty>slides|video|note|article)/(?P<vid>\d+)",
+    )
     @handle("m.douyin", r"m\.douyin\.com/share/(?P<ty>slides|video|note)/(?P<vid>\d+)")
-    # https://jingxuan.douyin.com/m/video/7574300896016862490?app=yumme&utm_source=copy_link
     @handle(
         "jingxuan.douyin",
-        r"jingxuan\.douyin.com/m/(?P<ty>slides|video|note)/(?P<vid>\d+)",
+        r"jingxuan\.douyin\.com/m/(?P<ty>slides|video|note)/(?P<vid>\d+)",
     )
     async def _parse_douyin(self, searched: re.Match[str]):
         ty = searched.groupdict().get("ty") or "video"
         vid = searched.group("vid")
         logger.debug(f"[抖音] 解析类型: {ty}, ID: {vid}")
-        if ty == "slides":
-            return await self.parse_slides(vid)
-
-        await self.ensure_ttwid()
-        share_url = self._build_iesdouyin_url(ty, vid)
-        logger.debug(f"[抖音] 使用 canonical share 页解析: {share_url}")
-
-        try:
-            return await self.parse_video(share_url)
-        except ParseException as e:
-            logger.warning(f"[抖音] canonical share 页解析失败 {share_url}, 错误: {e}")
-            raise ParseException("分享已删除或资源直链提取失败, 请稍后再试") from e
-
-    @staticmethod
-    def _build_iesdouyin_url(ty: str, vid: str) -> str:
-        return f"https://www.iesdouyin.com/share/{ty}/{vid}/"
-
-    @staticmethod
-    def _build_m_douyin_url(ty: str, vid: str) -> str:
-        return f"https://m.douyin.com/share/{ty}/{vid}/"
+        aweme = await self.fetch_aweme(vid, ty)
+        return await self.parse_aweme(aweme)
 
     async def ensure_ttwid(self) -> None:
         if self._has_ttwid():
             return
-
-        logger.debug("[抖音] 当前缺少匿名 ttwid，尝试注册")
         headers = self.ios_headers.copy()
         headers.update(
             {
                 "Content-Type": "application/json",
-                "Referer": "https://www.iesdouyin.com/",
+                "Referer": "https://www.douyin.com/",
             }
         )
         payload = {
             "region": "cn",
             "aid": 1768,
             "needFid": False,
-            "service": "www.iesdouyin.com",
+            "service": "www.douyin.com",
+            "migrate_info": {"ticket": "", "source": "node"},
+            "cbUrlProtocol": "https",
             "union": True,
-            "fid": "",
         }
         try:
             async with self.session.post(
-                self.TTWID_REGISTER_URL,
-                json=payload,
-                headers=headers,
+                self.TTWID_REGISTER_URL, json=payload, headers=headers
             ) as resp:
                 if resp.status >= 400:
-                    raise ParseException(f"ttwid register status: {resp.status}")
-                set_cookie_headers = resp.headers.getall("Set-Cookie", [])
-                self.cookiejar.update_from_response(set_cookie_headers)
+                    raise ParseException("抖音 ttwid 注册失败")
+                self.cookiejar.update_from_response(
+                    resp.headers.getall("Set-Cookie", [])
+                )
                 self._set_cookies()
                 body = await resp.json(content_type=None)
-        except (ClientError, TimeoutError, ValueError) as e:
-            raise ParseException("ttwid register failed") from e
-
-        if not isinstance(body, dict):
-            raise ParseException("ttwid register returned invalid body")
-
-        if callback_url := body.get("redirect_url"):
+        except (ClientError, TimeoutError, ValueError) as exc:
+            raise ParseException("抖音 ttwid 注册失败") from exc
+        callback_url = body.get("redirect_url") if isinstance(body, dict) else None
+        if callback_url:
             callback_headers = self._sync_headers_for_url(callback_url)
-            callback_headers["Referer"] = "https://www.iesdouyin.com/"
+            callback_headers["Referer"] = "https://www.douyin.com/"
             try:
                 async with self.session.get(
-                    callback_url,
-                    headers=callback_headers,
-                    allow_redirects=False,
+                    callback_url, headers=callback_headers, allow_redirects=False
                 ) as resp:
                     if resp.status >= 400:
-                        raise ParseException(f"ttwid callback status: {resp.status}")
-                    set_cookie_headers = resp.headers.getall("Set-Cookie", [])
-                    self.cookiejar.update_from_response(set_cookie_headers)
+                        raise ParseException("抖音 ttwid 回调失败")
+                    self.cookiejar.update_from_response(
+                        resp.headers.getall("Set-Cookie", [])
+                    )
                     self._set_cookies()
-            except (ClientError, TimeoutError) as e:
-                raise ParseException("ttwid callback failed") from e
-
+            except (ClientError, TimeoutError) as exc:
+                raise ParseException("抖音 ttwid 回调失败") from exc
         if not self._has_ttwid():
-            raise ParseException("ttwid register returned no cookie")
+            raise ParseException("抖音 ttwid 注册未返回 Cookie")
 
-    async def parse_with_redirect(self, url: str) -> "list[MediaContent]":
-        """先重定向再解析，并更新 cookies"""
-        logger.debug(f"[抖音] 短链重定向请求: {url}")
-        async with self.session.get(
-            url, headers=self.ios_headers, allow_redirects=False
-        ) as resp:
-            logger.debug(f"[抖音] 短链重定向响应状态码: {resp.status}")
-            # 从响应中提取 Set-Cookie 并更新
-            set_cookie_headers = resp.headers.getall("Set-Cookie", [])
-            self.cookiejar.update_from_response(set_cookie_headers)
-            self._set_cookies()
-
-            # 只有在状态码是重定向状态码时才获取 Location
-            redirect_url = url
-            if resp.status in (301, 302, 303, 307, 308):
-                redirect_url = resp.headers.get("Location", url)
-                logger.debug(f"[抖音] 重定向到: {redirect_url}")
-
+    async def parse_with_redirect(self, url: str) -> list[MediaContent]:
+        headers = self._sync_headers_for_url(url)
+        try:
+            async with self.session.get(
+                url, headers=headers, allow_redirects=False
+            ) as resp:
+                self.cookiejar.update_from_response(
+                    resp.headers.getall("Set-Cookie", [])
+                )
+                self._set_cookies()
+                redirect_url = (
+                    resp.headers.get("Location", url)
+                    if resp.status in (301, 302, 303, 307, 308)
+                    else url
+                )
+        except (ClientError, TimeoutError) as exc:
+            raise ParseException("抖音短链重定向失败") from exc
         if redirect_url == url:
-            raise ParseException(f"无法重定向 URL: {url}")
-
+            raise ParseException("无法重定向抖音短链")
         keyword, searched = self.search_url(redirect_url)
         return await self.parse(keyword, searched)
 
-    async def parse_video(self, url: str):
+    async def fetch_aweme(self, aweme_id: str, ty: str = "video") -> Aweme:
+        try:
+            return await self.fetch_detail(aweme_id)
+        except ParseException as exc:
+            logger.warning(f"[抖音] 详情接口失败，回退分享页: {exc}")
+        return await self.fetch_share_page(aweme_id, ty)
+
+    async def fetch_detail(self, aweme_id: str) -> Aweme:
         await self.ensure_ttwid()
-        share_headers = self._sync_headers_for_url(url)
-        async with self.session.get(
-            url, headers=share_headers, allow_redirects=False
-        ) as resp:
-            if resp.status != 200:
-                raise ParseException(f"status: {resp.status}")
-            text = await resp.text()
-            set_cookie_headers = resp.headers.getall("Set-Cookie", [])
-            self.cookiejar.update_from_response(set_cookie_headers)
-            self._set_cookies()
-
-        pattern = re.compile(
-            pattern=r"window\._ROUTER_DATA\s*=\s*(.*?)</script>",
-            flags=re.DOTALL,
-        )
-        matched = pattern.search(text)
-
-        if not matched or not matched.group(1):
-            logger.debug("[抖音] 未在HTML中找到 window._ROUTER_DATA")
-            raise ParseException("can't find _ROUTER_DATA in html")
-
-        logger.debug("[抖音] 成功提取 window._ROUTER_DATA")
-
-        from .video import RouterData
-
-        video_data = msgspec.json.decode(
-            matched.group(1).strip(), type=RouterData
-        ).video_data
-        await self._enrich_video_data(video_data, vid)
-        logger.debug(
-            f"[抖音] 解析成功 - 作者: {video_data.author.nickname}, 描述: {video_data.desc[:50]}..."
-        )
-        # 使用新的简洁构建方式
-        contents = []
-
-        # 添加图片内容
-        if image_urls := video_data.image_urls:
-            logger.debug(f"[抖音] 检测到图文内容，图片数量: {len(image_urls)}")
-            contents.extend(
-                self.create_image_contents(image_urls, headers=self.ios_headers)
-            )
-
-        # 添加视频内容
-        elif video_data.video:
-            cover_url = video_data.cover_url
-            duration = video_data.duration_seconds
-            logger.debug(f"[抖音] 检测到视频内容，时长: {duration:.2f}秒")
-            video_headers = self._build_media_headers(url)
-            video_url = None
-            if play_token := video_data.play_token:
-                try:
-                    probed = await self.probe_video_url(play_token, url)
-                    video_url = probed.url
-                    video_headers = probed.headers
-                    logger.debug(
-                        f"[抖音] play 端点探测成功，文件大小: {probed.size} 字节"
-                    )
-                except ParseException as e:
-                    logger.warning(f"[抖音] play 端点探测失败，回退 play_addr: {e}")
-            video_url = video_url or video_data.video_url
-            if video_url:
-                contents.append(
-                    self.create_video_content(
-                        video_url, cover_url, duration, headers=video_headers
-                    )
-                )
-
-        # 构建作者
-        author = self.create_author(
-            video_data.author.nickname, video_data.avatar_url, headers=self.ios_headers
-        )
-        metrics = video_data.metrics
-
-        if video_data.video:
-            await self.send_desc_video(
-                video_data.desc,
-                author,
-                cover=cover_url,
-                duration=duration,
-                timestamp=video_data.create_time,
-                url=url,
-                metrics=metrics,
-            )
-        else:
-            await self.send_desc_common(
-                video_data.desc,
-                author,
-                contents,
-                timestamp=video_data.create_time,
-                url=url,
-            )
-        return self.parse_result(contents)
-
-    @staticmethod
-    def _build_play_url(video_id: str, ratio: str) -> str:
-        return (
-            f"https://aweme.snssdk.com/aweme/v1/play/?video_id={video_id}&ratio={ratio}"
-        )
-
-    async def _enrich_video_data(self, video_data, video_id: str) -> None:
-        """从 Web 详情接口补齐分享页缺失的统计与时长。"""
-        headers = self.ios_headers.copy()
-        headers.update(
-            {
-                "Referer": "https://www.douyin.com/",
-                "Origin": "https://www.douyin.com",
-            }
-        )
+        headers = self.media_headers
+        headers["Origin"] = "https://open.douyin.com"
+        headers["Referer"] = "https://open.douyin.com/"
         try:
             async with self.session.get(
-                "https://www.douyin.com/aweme/v1/web/aweme/detail/",
-                params={"aweme_id": video_id, "aid": "6383"},
+                self.DETAIL_URL,
+                params={"aweme_id": aweme_id, "aid": "6383"},
                 headers=headers,
             ) as resp:
                 if resp.status >= 400:
-                    raise ValueError(f"status: {resp.status}")
-                payload = await resp.json(content_type=None)
-        except (ClientError, TimeoutError, ValueError, msgspec.ValidationError) as e:
-            logger.warning(f"[抖音] 详情接口补充统计失败，继续使用分享页数据: {e}")
-            return
-        detail = payload.get("aweme_detail") if isinstance(payload, dict) else None
-        if isinstance(detail, dict):
-            video_data.apply_detail(detail)
+                    raise ParseException(f"抖音详情接口状态码 {resp.status}")
+                payload = await resp.read()
+        except (ClientError, TimeoutError) as exc:
+            raise ParseException("抖音详情接口请求失败") from exc
+        try:
+            return decode_aweme(payload, detail=True)
+        except (msgspec.ValidationError, ValueError) as exc:
+            raise ParseException("抖音详情接口返回数据异常") from exc
 
-    def _build_media_headers(self, referer: str) -> dict[str, str]:
-        headers = self.ios_headers.copy()
-        headers.pop("Cookie", None)
-        headers["Referer"] = referer
-        return headers
+    async def fetch_share_page(self, aweme_id: str, ty: str = "video") -> Aweme:
+        await self.ensure_ttwid()
+        share_url = f"https://www.iesdouyin.com/share/{ty}/{aweme_id}/"
+        headers = self._sync_headers_for_url(share_url)
+        try:
+            async with self.session.get(
+                share_url, headers=headers, allow_redirects=False
+            ) as resp:
+                if resp.status != 200:
+                    raise ParseException(f"抖音分享页状态码 {resp.status}")
+                text = await resp.text()
+                self.cookiejar.update_from_response(
+                    resp.headers.getall("Set-Cookie", [])
+                )
+                self._set_cookies()
+        except (ClientError, TimeoutError) as exc:
+            raise ParseException("抖音分享页请求失败") from exc
+        matched = self.ROUTER_DATA_RE.search(text)
+        if not matched or not matched.group(1):
+            raise ParseException("抖音分享页缺少 _ROUTER_DATA")
+        try:
+            return decode_aweme(matched.group(1).strip(), detail=False)
+        except (msgspec.ValidationError, ValueError) as exc:
+            raise ParseException("抖音分享页返回数据异常") from exc
 
-    async def probe_video_url(self, video_id: str, referer: str) -> ProbedVideo:
-        probed_by_size: dict[int, ProbedVideo] = {}
+    async def fetch_comments(
+        self,
+        aweme_id: str,
+        limit: int = 5,
+        cursor: int = 0,
+    ) -> list[Comment]:
+        """评论接口预留：主解析不调用，后续评论卡片直接复用。"""
+        if limit <= 0:
+            return []
+        await self.ensure_ttwid()
+        headers = self.media_headers
+        try:
+            async with self.session.get(
+                self.COMMENT_URL,
+                params={
+                    "device_platform": "webapp",
+                    "aid": 6383,
+                    "channel": "channel_pc_web",
+                    "aweme_id": aweme_id,
+                    "cursor": cursor,
+                    "count": limit,
+                    "msToken": "",
+                    "X-Bogus": "",
+                },
+                headers=headers,
+            ) as resp:
+                if resp.status >= 400:
+                    raise ParseException(f"抖音评论接口状态码 {resp.status}")
+                payload = await resp.read()
+        except (ClientError, TimeoutError) as exc:
+            raise ParseException("抖音评论接口请求失败") from exc
+        try:
+            return decode_comments(payload)
+        except (msgspec.ValidationError, ValueError) as exc:
+            raise ParseException("抖音评论接口返回数据异常") from exc
 
-        for ratio in self.PLAY_RATIOS:
-            play_url = self._build_play_url(video_id, ratio)
-            headers = self._build_media_headers(referer)
-            headers["Range"] = "bytes=0-1"
-            try:
-                async with self.session.get(
-                    play_url,
-                    headers=headers,
-                    allow_redirects=True,
-                ) as resp:
-                    if resp.status >= 400:
-                        logger.debug(
-                            f"[抖音] ratio={ratio} 探测失败，状态码: {resp.status}"
-                        )
-                        continue
-                    size = self._extract_response_size(resp.headers)
-                    if size <= 0:
-                        logger.debug(f"[抖音] ratio={ratio} 未拿到有效文件大小")
-                        continue
-                    final_url = str(resp.url)
-            except (ClientError, TimeoutError) as e:
-                logger.debug(f"[抖音] ratio={ratio} 探测请求失败: {e}")
-                continue
-
-            probed_by_size.setdefault(
-                size, ProbedVideo(final_url, size, self._build_media_headers(referer))
+    async def parse_aweme(self, aweme: Aweme):
+        selected = (
+            select_video(
+                aweme, getattr(self.mycfg, "video_quality", "auto") or "auto"
             )
-
-        if not probed_by_size:
-            raise ParseException("can't probe play endpoint")
-
-        return max(probed_by_size.values(), key=lambda item: item.size)
-
-    @staticmethod
-    def _extract_response_size(headers) -> int:
-        if content_range := headers.get("Content-Range"):
-            if matched := re.search(r"/(\d+)\s*$", content_range):
-                return int(matched.group(1))
-        if content_length := headers.get("Content-Length"):
-            try:
-                return int(content_length)
-            except ValueError:
-                return 0
-        return 0
-
-    async def parse_slides(self, video_id: str):
-        url = "https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/"
-        params = {
-            "aweme_ids": f"[{video_id}]",
-            "request_source": "200",
-        }
-        logger.debug(f"[抖音] 请求参数: {params}")
-        async with self.session.get(
-            url, params=params, headers=self.android_headers
-        ) as resp:
-            logger.debug(f"[抖音] 幻灯片API响应状态码: {resp.status}")
-            resp.raise_for_status()
-            # 从响应中提取 Set-Cookie 并更新
-            set_cookie_headers = resp.headers.getall("Set-Cookie", [])
-            self.cookiejar.update_from_response(set_cookie_headers)
-            self._set_cookies()
-
-            from .slides import SlidesInfo
-
-            response_text = await resp.read()
-            logger.debug(f"[抖音] 幻灯片API响应体大小: {len(response_text)} 字节")
-            slides_data = msgspec.json.decode(
-                response_text, type=SlidesInfo
-            ).aweme_details[0]
-        logger.debug(
-            f"[抖音] 幻灯片解析成功 - 作者: {slides_data.name}, 描述: {slides_data.desc[:50]}..."
+            if aweme.is_video
+            else None
         )
-        contents = []
-
-        # 添加图片内容
-        if image_urls := slides_data.image_urls:
-            logger.debug(f"[抖音] 检测到幻灯片图片，数量: {len(image_urls)}")
-            contents.extend(
-                self.create_image_contents(image_urls, headers=self.android_headers)
+        contents = await self.build_contents(aweme, selected)
+        author = self.build_author(aweme)
+        if aweme.is_article:
+            article = aweme.article_info
+            await self.send_desc_common(
+                article.article_title if article else aweme.display_text,
+                author,
+                contents,
+                text=aweme.body_text,
+                timestamp=aweme.create_time,
+                url=aweme.short_url,
+                metrics=aweme.metrics,
             )
-
-        # 添加动态内容
-        if dynamic_urls := slides_data.dynamic_urls:
-            logger.debug(f"[抖音] 检测到幻灯片动态效果，数量: {len(dynamic_urls)}")
-            contents.extend(
-                self.create_dynamic_contents(dynamic_urls, headers=self.android_headers)
+        elif aweme.is_video and selected is not None and aweme.video is not None:
+            await self.send_desc_video(
+                aweme.display_text or None,
+                author,
+                cover=aweme.cover_url,
+                duration=aweme.video.duration / 1000,
+                quality=selected.quality,
+                resolution=selected.resolution,
+                text=aweme.text,
+                timestamp=aweme.create_time,
+                url=aweme.short_url,
+                metrics=aweme.metrics,
+                headers=self.media_headers,
             )
-
-        # 构建作者
-        author = self.create_author(
-            slides_data.name, slides_data.avatar_url, headers=self.android_headers
-        )
-
-        await self.send_desc_common(
-            slides_data.desc,
-            author,
-            contents,
-            timestamp=slides_data.create_time,
-        )
+        else:
+            await self.send_desc_common(
+                aweme.display_text or None,
+                author,
+                contents,
+                text=aweme.text,
+                timestamp=aweme.create_time,
+                url=aweme.short_url,
+                metrics=aweme.metrics,
+            )
         return self.parse_result(contents)
+
+    def build_author(self, aweme: Aweme) -> Author:
+        return self.create_author(
+            aweme.author.nickname or "抖音用户",
+            aweme.avatar_url,
+            description=aweme.author.signature,
+            uid=aweme.author_id,
+            metrics=aweme.author_metrics,
+            headers=self.media_headers,
+        )
+
+    async def build_contents(
+        self, aweme: Aweme, selected: SelectedVideo | None
+    ) -> list[MediaContent]:
+        contents: list[MediaContent] = []
+        headers = self.media_headers
+        if aweme.images:
+            for image in aweme.images:
+                if image.clip_type in (2, None) and image.url_list:
+                    contents.extend(
+                        self.create_image_contents([image.url_list[0]], headers=headers)
+                    )
+                    continue
+                if image.clip_type == 4:
+                    if image.video and image.video.play_addr.url_list:
+                        contents.append(
+                            self.create_video_content(
+                                image.video.play_addr.url_list[0],
+                                cover_url=image.url_list[0]
+                                if image.url_list
+                                else None,
+                                duration=image.video.duration / 1000,
+                                headers=headers,
+                                fallback_urls=image.video.play_addr.url_list[1:],
+                                retry_http_statuses=self.RETRYABLE_STATUSES,
+                            )
+                        )
+                    continue
+                if (
+                    image.clip_type == 5
+                    and image.video
+                    and image.video.play_addr.url_list
+                ):
+                    image_url = (
+                        image.url_list[0] if image.url_list else aweme.cover_url
+                    )
+                    if image_url:
+                        contents.append(
+                            self.create_live_photo_content(
+                                image.video.play_addr.url_list[0],
+                                image_url,
+                                cover_url=image_url,
+                                bgm_url=aweme.music_url,
+                                headers=headers,
+                                fallback_urls=image.video.play_addr.url_list[1:],
+                                retry_http_statuses=self.RETRYABLE_STATUSES,
+                            )
+                        )
+            return contents
+        if selected is not None:
+            contents.append(
+                self.create_video_content(
+                    selected.url,
+                    cover_url=aweme.cover_url,
+                    duration=aweme.video.duration / 1000 if aweme.video else 0,
+                    headers=headers,
+                    fallback_urls=selected.fallback_urls,
+                    retry_http_statuses=self.RETRYABLE_STATUSES,
+                )
+            )
+            return contents
+        return contents

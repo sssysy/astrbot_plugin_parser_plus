@@ -233,6 +233,18 @@
                         "hint": "选填",
                         "type": "text",
                         "default": ""
+                    },
+                    "video_quality": {
+                        "description": "视频画质偏好",
+                        "hint": "auto 自动选择最高可用画质；也可指定 1080p、720p、540p",
+                        "type": "string",
+                        "options": [
+                            "auto",
+                            "1080p",
+                            "720p",
+                            "540p"
+                        ],
+                        "default": "auto"
                     }
                 }
             },

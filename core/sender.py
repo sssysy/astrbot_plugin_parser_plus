@@ -23,6 +23,7 @@ from .data import (
     FileContent,
     GraphicsContent,
     ImageContent,
+    LivePhotoContent,
     MediaContent,
     TextContent,
     VideoContent,
@@ -152,7 +153,7 @@ class MessageSender:
                         segs.append(Plain(graphics.text))
                     if graphics.alt:
                         segs.append(Plain(graphics.alt))
-                case VideoContent() | DynamicContent():
+                case VideoContent() | DynamicContent() | LivePhotoContent():
                     path = await transcode_video_audio_to_lc(path)
                     segs.append(self._video_from_path(path))
                 case AudioContent():
@@ -171,7 +172,7 @@ class MessageSender:
         match content:
             case ImageContent() | GraphicsContent():
                 return "图片"
-            case VideoContent():
+            case VideoContent() | LivePhotoContent():
                 return "视频"
             case DynamicContent():
                 return "动图"

@@ -185,11 +185,7 @@ class XhsParser(BaseParser):
 
     @staticmethod
     def _matched_url(searched: re.Match[str]) -> str:
-        value = (
-            searched.string[searched.start() :]
-            if searched.string
-            else searched.group(0)
-        )
+        value = searched.group(0)
         if not value.startswith(("http://", "https://")):
             value = f"https://{value}"
         return value

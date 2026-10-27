@@ -1,6 +1,6 @@
 name: astrbot_plugin_parser_plus
 display_name: PLUS 解析器
-desc: 施工
+desc: 可自拓展平台、自拓展渲染效果的多平台聚合解析器(B站/小红书/小黑盒/微博/知乎/抖音/推特等)
 help: 略
 version: v0.1.0
 author: sssysy

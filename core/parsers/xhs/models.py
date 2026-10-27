@@ -6,7 +6,7 @@ from typing import Any
 
 from msgspec import Struct, field
 
-from ...data import Metric
+from ...data import Author, Metric
 from .utils import file_image_url, normalize_media_url
 
 QUALITY_LEVELS = ("540p", "720p", "1080p", "2k", "4k")
@@ -49,6 +49,59 @@ class XhsInteractInfo(Struct):
     share_count: str | int | None = field(name="shareCount", default=0)
 
 
+class XhsUserInteraction(Struct):
+    type: str = ""
+    name: str = ""
+    count: str | int | None = 0
+
+
+class XhsUserPageBasicInfo(Struct):
+    nickname: str = ""
+    desc: str = ""
+    ip_location: str = field(name="ipLocation", default="")
+    images: str = ""
+    image_b: str = field(name="imageb", default="")
+
+
+class XhsUserPageData(Struct):
+    interactions: list[XhsUserInteraction] = field(default_factory=list)
+    liked: str | int | None = 0
+    posted: str | int | None = 0
+    basic_info: XhsUserPageBasicInfo = field(
+        name="basicInfo", default_factory=lambda: XhsUserPageBasicInfo()
+    )
+
+    @property
+    def metrics(self) -> list[Metric]:
+        values = {
+            item.type: format_count(item.count)
+            for item in self.interactions
+            if item.type
+        }
+        return [
+            Metric(icon=None, label="获赞", value=format_count(self.liked)),
+            Metric(icon=None, label="关注", value=values.get("follows", "0")),
+            Metric(icon=None, label="粉丝", value=values.get("fans", "0")),
+        ]
+
+
+class XhsUserPage(Struct):
+    user_page_data: XhsUserPageData = field(
+        name="userPageData", default_factory=XhsUserPageData
+    )
+
+    @property
+    def author(self) -> Author:
+        basic = self.user_page_data.basic_info
+        return Author(
+            name=basic.nickname or "小红书用户",
+            description=basic.desc or basic.ip_location or None,
+            metrics=self.user_page_data.metrics,
+        )
+
+
+class XhsInitialUser(Struct):
+    user_page_data: XhsUserPage | None = field(name="userPageData", default=None)
 class XhsCover(Struct):
     file_id: str = field(name="fileId", default="")
 

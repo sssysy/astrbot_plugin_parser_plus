@@ -17,7 +17,13 @@ from ...data import MediaContent
 from ...download import Downloader
 from ...exception import ParseException
 from ..base import BaseParser, Platform, handle
-from .models import XhsNote, select_live_photo_stream, select_video
+from .models import (
+    XhsNote,
+    XhsUserPage,
+    XhsUserPageData,
+    select_live_photo_stream,
+    select_video,
+)
 from .utils import (
     build_note_url,
     is_xhs_page_url,
@@ -349,10 +355,17 @@ class XhsParser(BaseParser):
         note_id: str,
         token: str | None,
     ) -> list[MediaContent]:
+        profile = await self._fetch_author_profile(note.author_id)
         author = self.create_author(
-            note.author_name,
+            (profile.basic_info.nickname if profile else "") or note.author_name,
             note.avatar_url,
+            description=(
+                profile.basic_info.desc or profile.basic_info.ip_location or None
+                if profile
+                else None
+            ),
             uid=note.author_id,
+            metrics=profile.metrics if profile else None,
             headers=self.media_headers,
         )
         display_url = build_note_url(note_id, token)
@@ -403,6 +416,31 @@ class XhsParser(BaseParser):
             metrics=note.metrics,
         )
         return self.parse_result(contents)
+
+    async def _fetch_author_profile(self, user_id: str | None) -> XhsUserPageData | None:
+        if not user_id or not self._cookies_for_page():
+            return None
+        url = f"https://www.xiaohongshu.com/user/profile/{user_id}"
+        try:
+            async with self.session.get(
+                url,
+                headers=self.web_headers,
+                proxy=self.proxy,
+            ) as response:
+                if response.status >= 400:
+                    return None
+                html = await response.text()
+        except (ClientError, TimeoutError, UnicodeError):
+            return None
+        try:
+            state = extract_initial_state(html)
+            user = state.get("user")
+            if not isinstance(user, dict):
+                return None
+            page = msgspec.convert(user, type=XhsUserPage)
+            return page.user_page_data
+        except (ParseException, msgspec.ValidationError, TypeError, ValueError):
+            return None
 
     def _build_image_contents(self, note: XhsNote) -> list[MediaContent]:
         contents: list[MediaContent] = []

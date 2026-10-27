@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -244,6 +245,57 @@ class ParserRegistry:
         write_json_atomic(self.config_dir / f"{name}.json", settings.to_dict())
         await self.reload()
         return settings
+
+    async def save_many(
+        self,
+        updates: Iterable[tuple[str, bool, dict[str, Any]]],
+    ) -> list[ParserSettings]:
+        """校验并写入多个解析器配置，最后统一重建一次快照。"""
+        prepared: list[ParserSettings] = []
+        previous: dict[str, ParserSettings] = {}
+        names: set[str] = set()
+        for name, enabled, values in updates:
+            if not isinstance(enabled, bool):
+                raise ValueError("enabled 必须是 bool")
+            package = self.snapshot.by_name.get(name)
+            if package is None:
+                raise KeyError(name)
+            if name in names:
+                raise ValueError(f"解析器重复: {name}")
+            settings = ParserSettings(
+                definition=package.definition,
+                enabled=enabled,
+                values=merge_values(
+                    package.definition,
+                    dict(package.settings.values),
+                    dict(values),
+                ),
+            )
+            prepared.append(settings)
+            previous[name] = package.settings
+            names.add(name)
+
+        written: list[str] = []
+        try:
+            for settings in prepared:
+                write_json_atomic(
+                    self.config_dir / f"{settings.name}.json",
+                    settings.to_dict(),
+                )
+                written.append(settings.name)
+        except Exception:
+            for name in written:
+                write_json_atomic(
+                    self.config_dir / f"{name}.json",
+                    previous[name].to_dict(),
+                )
+            raise
+        for name in names:
+            old_parser = self._parser_instances.pop(name, None)
+            if old_parser is not None:
+                await old_parser.close_session()
+        await self.reload()
+        return prepared
 
     @staticmethod
     def _build_parser_config(

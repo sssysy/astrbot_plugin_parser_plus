@@ -78,6 +78,12 @@ class ParserPlugin(Star):
             "保存解析器配置",
         )
         self.context.register_web_api(
+            f"{PLUGIN_NAME}/parser-settings/parsers",
+            self.page_save_parsers,
+            ["POST"],
+            "批量保存解析器配置",
+        )
+        self.context.register_web_api(
             f"{PLUGIN_NAME}/parser-settings/skins",
             self.page_list_skins,
             ["GET"],
@@ -150,6 +156,23 @@ class ParserPlugin(Star):
         except ValueError as exc:
             return error_response(str(exc), status_code=400)
         return json_response({"saved": True, "reload_required": False})
+
+    async def page_save_parsers(self):
+        if not self._is_page_admin():
+            return error_response("unauthorized", status_code=403)
+        payload = await request.json(default={})
+        updates = payload.get("parsers") if isinstance(payload, dict) else None
+        if not isinstance(updates, list):
+            return error_response("invalid payload", status_code=400)
+        try:
+            result = await self.parser_settings.save_parsers(updates)
+        except KeyError:
+            return error_response("parser not found", status_code=404)
+        except OSError:
+            return error_response("failed to write parser settings", status_code=500)
+        except ValueError as exc:
+            return error_response(str(exc), status_code=400)
+        return json_response(result)
 
     async def page_list_skins(self):
         if not self._is_page_admin():

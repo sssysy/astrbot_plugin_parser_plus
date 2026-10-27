@@ -25,24 +25,33 @@ class ParserSettingsService:
         for package in self.registry.snapshot.packages:
             definition = package.definition
             settings = package.settings
+            fields = [
+                {
+                    "key": field.key,
+                    "type": field.type,
+                    "label": field.label,
+                    "hint": field.hint,
+                    "options": list(field.options),
+                    "secret": field.secret,
+                    "default": field.default,
+                    "configured": bool(settings.values.get(field.key))
+                    if field.secret
+                    else None,
+                }
+                for field in definition.fields
+            ]
+            public_values = {
+                field.key: settings.values.get(field.key, field.default)
+                for field in definition.fields
+                if not field.secret
+            }
             result.append(
                 {
                     "name": definition.name,
                     "display_name": definition.display_name,
                     "enabled": settings.enabled,
-                    "fields": [
-                        {
-                            "key": field.key,
-                            "type": field.type,
-                            "label": field.label,
-                            "hint": field.hint,
-                            "options": list(field.options),
-                            "secret": field.secret,
-                            "default": field.default,
-                        }
-                        for field in definition.fields
-                    ],
-                    "values": dict(settings.values),
+                    "fields": fields,
+                    "values": public_values,
                 }
             )
         return result
@@ -65,6 +74,35 @@ class ParserSettingsService:
             "saved": True,
             "reload_required": False,
             "enabled": settings.enabled,
+        }
+
+    async def save_parsers(self, updates: list[dict[str, Any]]) -> dict[str, Any]:
+        """一次保存多个解析器配置，全部校验通过后再写入。"""
+        prepared = []
+        seen: set[str] = set()
+        for item in updates:
+            if not isinstance(item, dict):
+                raise ValueError("解析器配置格式无效")
+            name = item.get("name")
+            enabled = item.get("enabled")
+            values = item.get("values")
+            if not isinstance(name, str) or not name:
+                raise ValueError("解析器名称无效")
+            if name in seen:
+                raise ValueError(f"解析器重复: {name}")
+            if not isinstance(enabled, bool) or not isinstance(values, dict):
+                raise ValueError(f"解析器 {name} 的配置格式无效")
+            prepared.append((name, enabled, values))
+            seen.add(name)
+
+        if not prepared:
+            return {"saved": True, "reload_required": False, "count": 0}
+
+        await self.registry.save_many(prepared)
+        return {
+            "saved": True,
+            "reload_required": False,
+            "count": len(prepared),
         }
 
     def list_skins(self) -> dict[str, Any]:

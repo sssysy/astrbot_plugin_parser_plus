@@ -275,6 +275,7 @@ class BaseParser:
         metrics: Iterable[Metric] | None = None,
         comments: Iterable[Comment] | None = None,
         headers: dict[str, str] | None = None,
+        repost: Description | None = None,
     ) -> None:
         """发送视频描述卡片。"""
         if _DESCRIPTION_SINK.get() is None:
@@ -302,6 +303,7 @@ class BaseParser:
                 quality=quality,
                 resolution=resolution,
             ),
+            repost=repost,
         )
         await self._emit_description(description)
 
@@ -474,7 +476,7 @@ class BaseParser:
                 )
             except Exception as exc:
                 logger.warning(
-                    "[抖音] Live Photo 合成失败，回退实况原视频 | "
+                    "[解析器] Live Photo 合成失败，回退实况原视频 | "
                     f"error_type={type(exc).__name__}"
                 )
                 return video_path

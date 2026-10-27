@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 新增网易云音乐、QQ音乐、酷狗音乐解析器：支持单曲分享链接，发送音乐卡片后按顺序下发音频与歌词；QQ音乐支持 QMC 解密。
 - 新增小红书解析器：支持 `xiaohongshu.com`、`xhslink.com`、`xhslink.cn` 长链/短链、视频与图文笔记、实况图、无水印图片、`xsec_token` 和 `target_note_id` 跳转。
 - 新增哔哩哔哩 TV 端扫码登录与自动续期：管理员发送 `blogin` 生成二维码；成功凭证保存到插件数据目录，过期时自动续期。
 - 新增 FFmpeg 自动发现：优先系统 FFmpeg，缺失时使用 `imageio-ffmpeg` 内置 `ffmpeg`；`ffprobe` 缺失时安全降级，不阻断解析。

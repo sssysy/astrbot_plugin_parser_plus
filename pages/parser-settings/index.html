@@ -3,25 +3,165 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>解析器配置</title>
+    <title>解析器设置</title>
     <link rel="stylesheet" href="./style.css" />
+    <script src="./app.js" defer></script>
   </head>
   <body>
-    <main>
-      <h1>解析器配置</h1>
-      <nav>
-        <button data-tab="parsers">解析器</button>
-        <button data-tab="skins">皮肤包</button>
-      </nav>
-      <section id="parsers-panel">
-        <div id="parsers"></div>
+    <main class="page">
+      <div class="page-bar">
+        <div class="primary-tabs" role="tablist" aria-label="设置分类">
+          <button
+            class="primary-tab is-active"
+            id="tab-parsers"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="panel-parsers"
+            data-tab="parsers"
+          >
+            <span>解析器配置</span>
+          </button>
+          <button
+            class="primary-tab"
+            id="tab-skins"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-skins"
+            data-tab="skins"
+          >
+            <span>皮肤包</span>
+          </button>
+        </div>
+
+        <div class="bar-actions">
+          <span class="save-status" id="save-status" hidden></span>
+          <button
+            class="text-button"
+            id="discard-all"
+            type="button"
+            hidden
+          >
+            撤销更改
+          </button>
+          <button
+            class="filled-button"
+            id="save-all"
+            type="button"
+            disabled
+          >
+            保存
+          </button>
+        </div>
+      </div>
+
+      <section
+        class="tab-panel"
+        id="panel-parsers"
+        role="tabpanel"
+        aria-labelledby="tab-parsers"
+      >
+        <div class="list-detail" id="parser-layout">
+          <aside class="list-pane" aria-label="解析器列表">
+            <header class="pane-header">
+              <h1>解析器</h1>
+              <p id="parser-count">正在加载</p>
+            </header>
+
+            <label class="search-field" for="parser-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M9.5 3a6.5 6.5 0 1 0 4.06 11.58L19.5 20.5 21 19l-5.92-5.94A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                />
+              </svg>
+              <input
+                id="parser-search"
+                type="search"
+                placeholder="搜索解析器"
+                autocomplete="off"
+              />
+            </label>
+
+            <div
+              class="parser-list"
+              id="parser-list"
+              role="listbox"
+              aria-label="选择解析器"
+            >
+              <div class="list-skeleton" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            </div>
+          </aside>
+
+          <section
+            class="detail-pane"
+            id="parser-detail"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div class="detail-skeleton" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          </section>
+        </div>
       </section>
-      <section id="skins-panel" hidden>
-        <p id="skin-message"></p>
-        <div id="skins"></div>
+
+      <section
+        class="tab-panel"
+        id="panel-skins"
+        role="tabpanel"
+        aria-labelledby="tab-skins"
+        hidden
+      >
+        <div class="skin-panel">
+          <header class="content-header">
+            <h1>皮肤包</h1>
+            <p>选择用于描述卡片和消息展示的皮肤。</p>
+          </header>
+
+          <section class="skin-section" aria-labelledby="skin-current-title">
+            <h2 class="section-title" id="skin-current-title">可用皮肤</h2>
+            <div
+              class="skin-list"
+              id="skin-list"
+              role="radiogroup"
+              aria-label="可用皮肤"
+            ></div>
+          </section>
+
+          <div class="notice" id="skin-notice">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M11 7h2v2h-2V7Zm0 4h2v6h-2v-6Zm1-9a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Z"
+              />
+            </svg>
+            <div>
+              <p id="skin-message">正在读取皮肤设置...</p>
+              <p class="notice__secondary">
+                皮肤加载始终经过 Renderer 校验，页面不会直接指定模板路径。
+              </p>
+            </div>
+          </div>
+        </div>
       </section>
-      <pre id="status"></pre>
     </main>
-    <script type="module" src="./app.js"></script>
+
+    <div
+      class="snackbar"
+      id="snackbar"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span id="snackbar-message"></span>
+    </div>
   </body>
 </html>

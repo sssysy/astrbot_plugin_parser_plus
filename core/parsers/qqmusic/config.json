@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "qqmusic",
+  "display_name": "QQ音乐",
+  "default_enabled": true,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    }
+  }
+}

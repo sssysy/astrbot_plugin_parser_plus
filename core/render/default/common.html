@@ -71,18 +71,74 @@
       box-shadow: inset 0 0 0 1px rgba(255,255,255,.6);
     }
     .body-copy { margin-top: 24px; }
-    .body-copy p { margin: 0 0 15px; font-size: 20px; line-height: 1.76; word-break: break-word; }
-    .body-copy p:last-child { margin-bottom: 0; }
-    .block-image {
+    .body-text {
+      margin: 0 0 16px;
+      font-size: 20px;
+      line-height: 1.76;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .body-text:last-child { margin-bottom: 0; }
+
+    /* 图片组：连续图片聚合成一块，并出血到卡片边缘。 */
+    .media-run {
+      margin: 22px -38px;
+      overflow: hidden;
+      background: var(--panel-bg);
+    }
+    .media-run img { display: block; width: 100%; }
+    .media-single img { height: auto; object-fit: contain; }
+    .media-grid {
+      display: grid;
+      gap: 2px;
+    }
+    .media-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .media-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .media-cell {
+      position: relative;
+      overflow: hidden;
+      aspect-ratio: 1 / 1;
+    }
+    .media-cell img {
       width: 100%;
-      display: block;
-      margin: 18px 0 22px;
-      border-radius: 18px;
+      height: 100%;
       object-fit: cover;
     }
-    .graphics-block { margin: 22px 0; }
-    .graphics-text { margin: 0 0 14px; font-size: 20px; line-height: 1.7; }
-    .graphics-alt { margin-top: 10px; color: var(--muted); font-size: 15px; text-align: center; }
+    .media-more {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 34px;
+      font-weight: 850;
+      letter-spacing: .01em;
+      background: rgba(0, 0, 0, .58);
+    }
+
+    /* 独立图文：始终独占一块，不进入多图网格。 */
+    .graphic-run {
+      margin: 22px -38px;
+      overflow: hidden;
+      background: var(--panel-bg);
+    }
+    .graphic-run > img {
+      display: block;
+      width: 100%;
+      height: auto;
+      object-fit: contain;
+    }
+    .graphic-caption {
+      margin: 0;
+      padding: 11px 38px 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+      text-align: center;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
     .extra-info { margin-top: 18px; color: var(--muted); font-size: 15px; line-height: 1.6; }
     .author-card {
       margin-top: 28px;
@@ -146,12 +202,79 @@
     .repost-label { color: var(--muted); font-size: 14px; font-weight: 700; }
     .repost-title { margin: 8px 0 10px; font-size: 21px; line-height: 1.4; font-weight: 800; }
     .repost-text { margin: 0; color: #3e4349; font-size: 16px; line-height: 1.65; }
-    .repost-image { width: 100%; margin-top: 12px; border-radius: 14px; }
+    /* 转发区自带内边距，取消正文图片的出血，避免溢出圆角容器。 */
+    .repost-body .media-run,
+    .repost-body .graphic-run {
+      margin: 14px 0 0;
+      border-radius: 14px;
+    }
+    .repost-body .graphic-caption { padding-left: 0; padding-right: 0; }
+    .repost-body .body-text { font-size: 16px; line-height: 1.65; color: #3e4349; }
+    .repost-body .media-more { font-size: 24px; }
     {% block styles %}{% endblock %}
   </style>
 </head>
 <body>
   <main class="card">
+    {# 最多展示的图片数，超出部分折叠成 +N 角标。 #}
+    {% set MAX_VISIBLE_IMAGES = 9 %}
+
+    {% macro media_run(items) -%}
+      {% set count = items | length %}
+      {% if count == 1 %}
+        <div class="media-run media-single">
+          <img src="{{ items[0].src }}" alt="{{ items[0].alt or '' }}">
+        </div>
+      {% else %}
+        {% set visible = items[:MAX_VISIBLE_IMAGES] %}
+        {% set hidden = count - MAX_VISIBLE_IMAGES if count > MAX_VISIBLE_IMAGES else 0 %}
+        {% set cols = 3 if count == 3 or count > 4 else 2 %}
+        <div class="media-run media-grid media-cols-{{ cols }}">
+          {% for item in visible %}
+            <div class="media-cell">
+              <img src="{{ item.src }}" alt="{{ item.alt or '' }}">
+              {% if hidden and loop.last %}<div class="media-more">+{{ hidden }}</div>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {%- endmacro %}
+
+    {% macro graphic_run(block) -%}
+      <div class="graphic-run">
+        <img src="{{ block.src }}" alt="{{ block.alt or '' }}">
+      </div>
+      {% if block.alt %}<p class="graphic-caption">{{ block.alt }}</p>{% endif %}
+    {%- endmacro %}
+
+    {% macro text_run(block) -%}
+      <p class="body-text">{{ block.text }}</p>
+    {%- endmacro %}
+
+    {% macro render_blocks(blocks) -%}
+      {# 连续图片累积成组，遇到任何非图片内容就切段输出，保持原始顺序。 #}
+      {% set ns = namespace(pending=[], out=[]) %}
+      {% for block in blocks %}
+        {% if block.type == 'image' and block.src %}
+          {% set ns.pending = ns.pending + [block] %}
+        {% else %}
+          {% if ns.pending %}
+            {% set ns.out = ns.out + [media_run(ns.pending)] %}
+            {% set ns.pending = [] %}
+          {% endif %}
+          {% if block.type == 'graphics' and block.src %}
+            {% set ns.out = ns.out + [graphic_run(block)] %}
+          {% elif block.text %}
+            {% set ns.out = ns.out + [text_run(block)] %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+      {% if ns.pending %}
+        {% set ns.out = ns.out + [media_run(ns.pending)] %}
+      {% endif %}
+      {{ ns.out | join('') | safe }}
+    {%- endmacro %}
+
     {% block header %}
       {% if card.title %}<h1 class="title">{{ card.title }}</h1>{% endif %}
     {% endblock %}
@@ -159,20 +282,14 @@
     {% block media %}{% endblock %}
 
     <section class="body-copy">
-      {% if card.text %}<p>{{ card.text }}</p>{% endif %}
-      {% for block in card.blocks %}
-        {% if block.type == 'text' and block.text %}
-          <p>{{ block.text }}</p>
-        {% elif block.type == 'image' and block.src %}
-          <img class="block-image" src="{{ block.src }}" alt="{{ block.alt or '' }}">
-        {% elif block.type == 'graphics' and block.src %}
-          <div class="graphics-block">
-            {% if block.text %}<p class="graphics-text">{{ block.text }}</p>{% endif %}
-            <img class="block-image" src="{{ block.src }}" alt="{{ block.alt or '' }}">
-            {% if block.alt %}<div class="graphics-alt">{{ block.alt }}</div>{% endif %}
-          </div>
-        {% endif %}
-      {% endfor %}
+      {% if card.text %}<p class="body-text">{{ card.text }}</p>{% endif %}
+      {# 解析器给的封面是卡片主视觉：正文没有图片时用它兜底，避免只剩文字。 #}
+      {% if card.cover and not card.blocks | selectattr('type', 'equalto', 'image') | list %}
+        <div class="media-run media-single">
+          <img src="{{ card.cover }}" alt="{{ card.title or card.platform.display_name }}">
+        </div>
+      {% endif %}
+      {{ render_blocks(card.blocks) }}
       {% if card.extra_info %}<div class="extra-info">{{ card.extra_info }}</div>{% endif %}
     </section>
 
@@ -222,13 +339,7 @@
         <div class="repost-label">转发内容 · {{ card.repost.platform.display_name }}</div>
         {% if card.repost.title %}<div class="repost-title">{{ card.repost.title }}</div>{% endif %}
         {% if card.repost.text %}<p class="repost-text">{{ card.repost.text }}</p>{% endif %}
-        {% for block in card.repost.blocks %}
-          {% if block.type == 'image' and block.src %}
-            <img class="repost-image" src="{{ block.src }}" alt="{{ block.alt or '' }}">
-          {% elif block.type == 'graphics' and block.src %}
-            <img class="repost-image" src="{{ block.src }}" alt="{{ block.alt or '' }}">
-          {% endif %}
-        {% endfor %}
+        <div class="repost-body">{{ render_blocks(card.repost.blocks) }}</div>
       </section>
     {% endif %}
   </main>

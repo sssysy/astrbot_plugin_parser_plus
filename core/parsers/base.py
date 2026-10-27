@@ -191,9 +191,19 @@ class BaseParser:
     def _normalize_desc_contents(
         contents: Iterable[ContentItem],
     ) -> tuple[list[MediaContent], str | None]:
-        """把文字和图片组合成按顺序渲染的图文块。"""
+        """按原始顺序保留文字块，供卡片做图文混排。
+
+        文字不再粘到相邻图片上，而是作为独立的 ``TextContent`` 参与排序，
+        这样 "图 -> 文 -> 图" 这类交错结构才能被正确还原。
+        """
         media: list[MediaContent] = []
         pending_text: list[str] = []
+
+        def flush_text() -> None:
+            text = "\n".join(pending_text).strip()
+            pending_text.clear()
+            if text:
+                media.append(TextContent(text))
 
         for item in contents:
             if isinstance(item, str):
@@ -202,29 +212,11 @@ class BaseParser:
             if isinstance(item, TextContent):
                 pending_text.append(item.text)
                 continue
+            flush_text()
+            media.append(item)
 
-            text = "\n".join(pending_text).strip() or None
-            pending_text.clear()
-
-            if isinstance(item, ImageContent):
-                graphics = GraphicsContent(item.path_task, text)
-                graphics._loader = item._loader
-                media.append(graphics)
-            elif isinstance(item, GraphicsContent) and text:
-                graphics = GraphicsContent(
-                    item.path_task,
-                    text=f"{text}\n{item.text}" if item.text else text,
-                    alt=item.alt,
-                )
-                graphics._loader = item._loader
-                media.append(graphics)
-            else:
-                if text:
-                    media.append(TextContent(text))
-                media.append(item)
-
-        trailing_text = "\n".join(pending_text).strip() or None
-        return media, trailing_text
+        flush_text()
+        return media, None
 
     async def send_desc_common(
         self,

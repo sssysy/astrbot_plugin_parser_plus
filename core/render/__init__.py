@@ -128,7 +128,9 @@ class Renderer:
         context = await self._description_context(description)
         platform = self._safe_template_name(description.platform.name)
         candidates = [f"{platform}.html"]
-        candidates.append("video.html")
+        # 只有视频描述才走 video.html，否则图文帖会拿到视频版式（大封面 + 播放键）。
+        if description.video is not None:
+            candidates.append("video.html")
         candidates.append("common.html")
 
         for template_name in candidates:

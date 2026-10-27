@@ -377,6 +377,130 @@
       white-space: pre-wrap;
       background: var(--panel);
     }
+    .comments {
+      margin-top: 34px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+    }
+    .comments-title {
+      margin: 0 0 22px;
+      color: var(--muted);
+      font-size: 27px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+    .comment {
+      display: flex;
+      align-items: flex-start;
+      gap: 15px;
+      margin-top: 24px;
+    }
+    .comment-avatar, .comment-avatar-placeholder {
+      width: 52px;
+      height: 52px;
+      flex: 0 0 52px;
+      border: 1px solid rgba(255, 255, 255, .14);
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .comment-avatar-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink);
+      font-size: 21px;
+      font-weight: 800;
+      background: linear-gradient(145deg, #383b43, #17191d);
+    }
+    .comment-main { min-width: 0; flex: 1; }
+    .comment-author {
+      color: rgba(247, 247, 245, .72);
+      font-size: 19px;
+      font-weight: 760;
+      line-height: 1.35;
+    }
+    .comment-reply-to { color: var(--soft); font-weight: 520; }
+    .comment-copy {
+      margin-top: 7px;
+      color: rgba(247, 247, 245, .84);
+      font-size: 19px;
+      line-height: 1.62;
+      word-break: break-word;
+    }
+    .comment-copy p {
+      margin: 0;
+      white-space: pre-wrap;
+    }
+    .comment-copy p + p { margin-top: 7px; }
+    .comment-image {
+      display: block;
+      width: auto;
+      max-width: 360px;
+      max-height: 280px;
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      object-fit: contain;
+      background: rgba(255, 255, 255, .04);
+    }
+    .comment-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 7px 16px;
+      margin-top: 9px;
+      color: var(--soft);
+      font-size: 14px;
+      line-height: 1.25;
+    }
+    .comment-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .comment-meta .fa-icon { font-size: 13px; }
+    .comment-replies {
+      margin-top: 15px;
+      padding: 15px 17px;
+      border: 1px solid rgba(255, 255, 255, .075);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .035);
+    }
+    .comment-replies .comment {
+      gap: 11px;
+      margin-top: 0;
+    }
+    .comment-replies .comment + .comment { margin-top: 15px; }
+    .comment-reply-avatar, .comment-reply-avatar-placeholder {
+      width: 32px;
+      height: 32px;
+      flex: 0 0 32px;
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .comment-reply-avatar-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 800;
+      background: linear-gradient(145deg, #383b43, #17191d);
+    }
+    .comment-replies .comment-author {
+      font-size: 17px;
+      font-weight: 720;
+    }
+    .comment-replies .comment-copy {
+      margin-top: 4px;
+      font-size: 17px;
+      line-height: 1.55;
+    }
+    .comment-replies .comment-meta {
+      margin-top: 6px;
+      font-size: 13px;
+    }
     .profile {
       display: flex;
       align-items: center;
@@ -604,6 +728,72 @@
             {% endfor %}
             {% if card.extra_info %}<div class="extra-info">{{ card.extra_info }}</div>{% endif %}
           </div>
+        {% endif %}
+
+        {% if card.comments %}
+          <section class="comments">
+            <h4 class="comments-title">评论</h4>
+            {% for comment in card.comments %}
+              <article class="comment">
+                {% if comment.author.avatar %}
+                  <img class="comment-avatar" src="{{ comment.author.avatar }}" alt="">
+                {% else %}
+                  <div class="comment-avatar-placeholder">{{ comment.author.name[:1] }}</div>
+                {% endif %}
+                <div class="comment-main">
+                  <div class="comment-author">{{ comment.author.name }}</div>
+                  <div class="comment-copy">
+                    {% for item in comment.content %}
+                      {% if item.type == 'text' and item.text %}
+                        <p>{{ item.text }}</p>
+                      {% elif item.type == 'image' and item.src %}
+                        <img class="comment-image" src="{{ item.src }}" alt="">
+                      {% endif %}
+                    {% endfor %}
+                  </div>
+                  <div class="comment-meta">
+                    {% if comment.formatted_datetime %}<span>{{ comment.formatted_datetime }}</span>{% endif %}
+                    {% if comment.location %}<span>{{ comment.location }}</span>{% endif %}
+                    {% if comment.like_count %}<span><i class="fa-icon fa-heart"></i>{{ comment.like_count }}</span>{% endif %}
+                    {% if comment.reply_count %}<span><i class="fa-icon fa-comment-dots"></i>{{ comment.reply_count }}</span>{% endif %}
+                  </div>
+                  {% if comment.replies %}
+                    <div class="comment-replies">
+                      {% for reply in comment.replies %}
+                        <div class="comment">
+                          {% if reply.author.avatar %}
+                            <img class="comment-reply-avatar" src="{{ reply.author.avatar }}" alt="">
+                          {% else %}
+                            <div class="comment-reply-avatar-placeholder">{{ reply.author.name[:1] }}</div>
+                          {% endif %}
+                          <div class="comment-main">
+                            <div class="comment-author">
+                              {{ reply.author.name }}{% if reply.parent_author %}<span class="comment-reply-to"> 回复 @{{ reply.parent_author.name }}</span>{% endif %}
+                            </div>
+                            <div class="comment-copy">
+                              {% for item in reply.content %}
+                                {% if item.type == 'text' and item.text %}
+                                  <p>{{ item.text }}</p>
+                                {% elif item.type == 'image' and item.src %}
+                                  <img class="comment-image" src="{{ item.src }}" alt="">
+                                {% endif %}
+                              {% endfor %}
+                            </div>
+                            <div class="comment-meta">
+                              {% if reply.formatted_datetime %}<span>{{ reply.formatted_datetime }}</span>{% endif %}
+                              {% if reply.location %}<span>{{ reply.location }}</span>{% endif %}
+                              {% if reply.like_count %}<span><i class="fa-icon fa-heart"></i>{{ reply.like_count }}</span>{% endif %}
+                              {% if reply.reply_count %}<span><i class="fa-icon fa-comment-dots"></i>{{ reply.reply_count }}</span>{% endif %}
+                            </div>
+                          </div>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                </div>
+              </article>
+            {% endfor %}
+          </section>
         {% endif %}
 
         {% if card.author and (card.author.metrics or card.author.uid) %}

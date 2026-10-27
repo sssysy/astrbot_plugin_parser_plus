@@ -30,6 +30,8 @@ from astrbot.api import logger
 from ..config import PluginConfig
 from ..data import (
     Author,
+    Comment,
+    ContentItem,
     Description,
     GraphicsContent,
     IconAsset,
@@ -182,6 +184,7 @@ class Renderer:
             video,
             repost,
             cover,
+            comments,
         ) = await asyncio.gather(
             self._platform_logo(description.platform.name),
             self._content_blocks(description.contents, cover=cover_path),
@@ -194,6 +197,7 @@ class Renderer:
                 else asyncio.sleep(0, result=None)
             ),
             self._cover_context(cover_path),
+            self._comments_context(description.comments),
         )
         return {
             "platform": {
@@ -213,6 +217,7 @@ class Renderer:
             "cover": cover,
             "video": video,
             "repost": repost,
+            "comments": comments,
         }
 
     async def _cover_context(
@@ -232,10 +237,23 @@ class Renderer:
                 return value
         return "AstrBot Parser"
 
-    async def _author_context(self, author: Author | None) -> dict[str, Any] | None:
+    async def _author_context(
+        self,
+        author: Author | None,
+        *,
+        is_comment: bool = False,
+    ) -> dict[str, Any] | None:
         if author is None:
             return None
-        avatar_path = await author.get_avatar_path()
+        try:
+            avatar_path = await author.get_avatar_path()
+        except Exception as exc:
+            if is_comment:
+                logger.warning(
+                    "[渲染] 评论头像加载失败 | "
+                    f"error_type={type(exc).__name__}"
+                )
+            avatar_path = None
         return {
             "name": author.name,
             "uid": author.uid,
@@ -243,6 +261,72 @@ class Renderer:
             "avatar": await self._path_to_data_uri(avatar_path, 192, 192),
             "metrics": await self._metrics_context(author.metrics),
         }
+
+    async def _comments_context(
+        self,
+        comments: list[Comment] | None,
+    ) -> list[dict[str, Any]]:
+        return await asyncio.gather(
+            *(self._comment_context(comment) for comment in comments or ())
+        )
+
+    async def _comment_context(self, comment: Comment) -> dict[str, Any]:
+        author, content, replies, parent_author = await asyncio.gather(
+            self._author_context(comment.author, is_comment=True),
+            self._comment_content(comment.contents),
+            asyncio.gather(
+                *(self._comment_context(reply) for reply in comment.replies[:5])
+            ),
+            (
+                self._author_context(comment.parent_author, is_comment=True)
+                if comment.parent_author is not None
+                else asyncio.sleep(0, result=None)
+            ),
+        )
+        return {
+            "author": author or {"name": "", "avatar": "", "uid": None},
+            "content": content,
+            "formatted_datetime": comment.formatted_datetime("%Y-%m-%d %H:%M"),
+            "location": comment.location,
+            "like_count": self._format_comment_count(comment.like_count),
+            "reply_count": self._format_comment_count(comment.reply_count),
+            "replies": replies,
+            "parent_author": parent_author,
+        }
+
+    async def _comment_content(
+        self,
+        contents: list[ContentItem],
+    ) -> list[dict[str, Any]]:
+        async def build_block(item: ContentItem) -> dict[str, Any] | None:
+            try:
+                if isinstance(item, str):
+                    return {"type": "text", "text": item} if item else None
+                if isinstance(item, TextContent):
+                    return {"type": "text", "text": item.text} if item.text else None
+                if isinstance(item, (ImageContent, GraphicsContent)):
+                    path = await item.get_path()
+                    return {
+                        "type": "image",
+                        "src": await self._path_to_data_uri(path, 720, 560),
+                    }
+            except Exception as exc:
+                logger.warning(
+                    "[渲染] 评论内容加载失败 | "
+                    f"type={type(item).__name__} | "
+                    f"error_type={type(exc).__name__}"
+                )
+            return None
+
+        blocks = await asyncio.gather(*(build_block(item) for item in contents))
+        return [block for block in blocks if block is not None]
+
+    @staticmethod
+    def _format_comment_count(value: str | int | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     async def _video_context(self, description: Description) -> dict[str, Any] | None:
         video = description.video

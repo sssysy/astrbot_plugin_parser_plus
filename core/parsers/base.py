@@ -21,6 +21,7 @@ from ..constants import ANDROID_HEADER, COMMON_HEADER, IOS_HEADER
 from ..data import (
     AudioContent,
     Author,
+    Comment,
     ContentItem,
     Description,
     DynamicContent,
@@ -229,6 +230,7 @@ class BaseParser:
         url: str | None = None,
         extra: dict[str, Any] | None = None,
         metrics: Iterable[Metric] | None = None,
+        comments: Iterable[Comment] | None = None,
         cover: str | Path | Task[Path] | None = None,
         repost: Description | None = None,
     ) -> None:
@@ -251,6 +253,7 @@ class BaseParser:
             contents=card_contents,
             extra=extra or {},
             metrics=list(metrics or ()),
+            comments=list(comments or ()),
             cover=cover_task,
             repost=repost,
         )
@@ -270,6 +273,7 @@ class BaseParser:
         url: str | None = None,
         extra: dict[str, Any] | None = None,
         metrics: Iterable[Metric] | None = None,
+        comments: Iterable[Comment] | None = None,
         headers: dict[str, str] | None = None,
     ) -> None:
         """发送视频描述卡片。"""
@@ -290,6 +294,7 @@ class BaseParser:
             url=url,
             extra=extra or {},
             metrics=list(metrics or ()),
+            comments=list(comments or ()),
             cover=cover_task,
             video=VideoMeta(
                 cover=cover_task,

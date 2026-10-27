@@ -56,6 +56,74 @@
     {% endif %}
 {% endmacro %}
 
+{% macro render_comments(comments) %}
+    {% if comments %}
+        <section class="comments">
+            <h4 class="comments-title">评论</h4>
+            {% for comment in comments %}
+                <article class="comment">
+                    {% if comment.author.avatar %}
+                        <img src="{{ comment.author.avatar }}" alt="" class="comment-avatar" />
+                    {% else %}
+                        <div class="comment-avatar comment-avatar-placeholder">{{ comment.author.name[:1] }}</div>
+                    {% endif %}
+                    <div class="comment-main">
+                        <div class="comment-author">{{ comment.author.name }}</div>
+                        <div class="comment-copy">
+                            {% for item in comment.content %}
+                                {% if item.type == 'text' %}
+                                    <p>{{ item.text }}</p>
+                                {% elif item.type == 'image' and item.src %}
+                                    <img src="{{ item.src }}" alt="" class="comment-image" />
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        <div class="comment-meta">
+                            {% if comment.formatted_datetime %}<span>{{ comment.formatted_datetime }}</span>{% endif %}
+                            {% if comment.location %}<span>{{ comment.location }}</span>{% endif %}
+                            {% if comment.like_count %}<span><i class="fa-icon fa-heart"></i>{{ comment.like_count }}</span>{% endif %}
+                            {% if comment.reply_count %}<span><i class="fa-icon fa-comment-dots"></i>{{ comment.reply_count }}</span>{% endif %}
+                        </div>
+                        {% if comment.replies %}
+                            <div class="comment-replies">
+                                {% for reply in comment.replies %}
+                                    <div class="comment">
+                                        {% if reply.author.avatar %}
+                                            <img src="{{ reply.author.avatar }}" alt="" class="comment-reply-avatar" />
+                                        {% else %}
+                                            <div class="comment-reply-avatar comment-reply-avatar-placeholder">{{ reply.author.name[:1] }}</div>
+                                        {% endif %}
+                                        <div class="comment-main">
+                                            <div class="comment-author">
+                                                {{ reply.author.name }}{% if reply.parent_author %}<span class="comment-reply-to"> 回复 @{{ reply.parent_author.name }}</span>{% endif %}
+                                            </div>
+                                            <div class="comment-copy">
+                                                {% for item in reply.content %}
+                                                    {% if item.type == 'text' %}
+                                                        <p>{{ item.text }}</p>
+                                                    {% elif item.type == 'image' and item.src %}
+                                                        <img src="{{ item.src }}" alt="" class="comment-image" />
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </div>
+                                            <div class="comment-meta">
+                                                {% if reply.formatted_datetime %}<span>{{ reply.formatted_datetime }}</span>{% endif %}
+                                                {% if reply.location %}<span>{{ reply.location }}</span>{% endif %}
+                                                {% if reply.like_count %}<span><i class="fa-icon fa-heart"></i>{{ reply.like_count }}</span>{% endif %}
+                                                {% if reply.reply_count %}<span><i class="fa-icon fa-comment-dots"></i>{{ reply.reply_count }}</span>{% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </article>
+            {% endfor %}
+        </section>
+    {% endif %}
+{% endmacro %}
+
 {% macro build_images(img_list, full_bleed=False) %}
     {% set count = img_list|length %}
     {% set visible_imgs = img_list[:MAX_VISIBLE_IMAGES] %}
@@ -149,28 +217,28 @@
 
 {% macro render_content(post, meta, is_repost=False) %}
     <div class="{{ 'w-full' if is_repost else 'w-[620px]' }} overflow-hidden flex flex-col">
-        <div class="px-8 pt-10 pb-3 flex justify-between items-center">
-            <div class="flex items-center space-x-3">
+        <div class="post-header px-8 pt-10 pb-3 flex justify-between items-center">
+            <div class="post-author flex items-center">
                 {% if post.author.avatar %}
                     <img src="{{ post.author.avatar }}"
-                         class="w-12 h-12 rounded-full object-cover" />
+                         class="post-author-avatar w-12 h-12 rounded-full object-cover" />
                 {% endif %}
-                <div>
+                <div class="post-author-main">
                     <div class="flex items-center space-x-2">
-                        <h2 class="text-xl font-black text-slate-800 dark:text-slate-100 leading-none">{{ post.author.name if post.author else post.platform.display_name }}</h2>
+                        <h2 class="post-author-name text-xl font-black text-slate-800 dark:text-slate-100 leading-none">{{ post.author.name if post.author else post.platform.display_name }}</h2>
                     </div>
-                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium space-x-2">
-                        {% if post.formatted_datetime %}<span>{{ post.formatted_datetime }}</span>{% endif %}
-                        {% if post.author and post.author.description %}<span>{{ post.author.description }}</span>{% endif %}
+                    <p class="post-author-meta text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium">
+                        {% if post.formatted_datetime %}<span class="post-author-time">{{ post.formatted_datetime }}</span>{% endif %}
+                        {% if post.author and post.author.description %}<span class="post-author-description">{{ post.author.description }}</span>{% endif %}
                     </p>
                 </div>
             </div>
             {% if not is_repost %}
-                <div class="flex items-center space-x-1.5 px-4 py-2">
+                <div class="post-platform flex items-center px-4 py-2">
                     {% if post.platform.logo %}
                         <img src="{{ post.platform.logo }}" class="w-4 h-4 rounded-[2px]" />
                     {% endif %}
-                    <span class="text-xs font-black text-gray-500 dark:text-slate-300 tracking-widest">{{ post.platform.display_name }}</span>
+                    <span class="post-platform-name text-xs font-black text-gray-500 dark:text-slate-300 tracking-widest">{{ post.platform.display_name }}</span>
                 </div>
             {% endif %}
         </div>
@@ -191,6 +259,7 @@
             </div>
         {% endif %}
         {{ render_metrics(post.metrics) }}
+        {{ render_comments(post.comments) }}
         {% if post.extra_info %}
             <div class="px-8 pb-5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{{ post.extra_info }}</div>
         {% endif %}

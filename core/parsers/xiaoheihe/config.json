@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "name": "xiaoheihe",
+  "display_name": "小黑盒",
+  "default_enabled": true,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填；可填写包含 x_xhh_tokenid 的网页 Cookie",
+      "secret": true,
+      "default": ""
+    },
+    "show_body_text": {
+      "type": "bool",
+      "label": "发送正文文字",
+      "hint": "关闭时正文文字只显示在描述卡片中",
+      "default": true
+    },
+    "use_original_image": {
+      "type": "bool",
+      "label": "使用原图",
+      "hint": "移除七牛缩略图参数；关闭可降低流量和下载失败率",
+      "default": true
+    },
+    "mixed_layout": {
+      "type": "bool",
+      "label": "图文混排",
+      "hint": "按正文顺序交错发送文字和图片；关闭时先发媒体后发文字",
+      "default": true
+    }
+  }
+}

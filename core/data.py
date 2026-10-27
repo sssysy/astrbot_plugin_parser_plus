@@ -244,6 +244,40 @@ class Author:
 
 
 @dataclass(repr=False, slots=True)
+class Comment:
+    """描述卡片中的评论，仅渲染根评论与一级回复。"""
+
+    author: Author
+    contents: list["ContentItem"] = field(default_factory=list)
+    """评论正文，按原始顺序包含文字和图片。"""
+    timestamp: int | None = None
+    """发布时间戳，单位秒。"""
+    location: str | None = None
+    """IP 属地等位置信息。"""
+    like_count: str | int | None = None
+    """点赞数，可传入已格式化的字符串。"""
+    reply_count: str | int | None = None
+    """回复数，可传入已格式化的字符串。"""
+    replies: list["Comment"] = field(default_factory=list)
+    """一级子回复；渲染层不会继续展开更深层级。"""
+    parent_author: Author | None = None
+    """被回复的作者，用于显示“回复 @xxx”。"""
+
+    def formatted_datetime(self, fmt: str = "%Y-%m-%d %H:%M:%S") -> str | None:
+        return (
+            datetime.fromtimestamp(self.timestamp).strftime(fmt)
+            if self.timestamp is not None
+            else None
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"Comment(author={self.author}, timestamp={self.timestamp}, "
+            f"contents={self.contents}, replies={len(self.replies)})"
+        )
+
+
+@dataclass(repr=False, slots=True)
 class Description:
     """描述卡片数据，不包含最终发送分组或下载策略。"""
 
@@ -256,6 +290,7 @@ class Description:
     contents: list[MediaContent] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
     metrics: list[Metric] = field(default_factory=list)
+    comments: list[Comment] = field(default_factory=list)
     cover: Path | Task[Path] | None = None
     """媒体卡片主视觉；由解析器按图集/图片/视频规则提供。"""
     video: VideoMeta | None = None
@@ -337,6 +372,7 @@ class Description:
             f"author: {self.author}, "
             f"contents: {self.contents}, "
             f"extra: {self.extra}, "
+            f"comments: {self.comments}, "
             f"repost: <<<<<<<{self.repost}>>>>>>>"
         )
 

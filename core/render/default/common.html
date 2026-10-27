@@ -29,6 +29,163 @@
       height: auto;
       transform: translateY(14px) scale(1.02);
     }
+    main .post-header { gap: 16px; }
+    main .post-author {
+      flex: 1 1 auto;
+      min-width: 0;
+      gap: 12px;
+    }
+    main .post-author-avatar { flex: 0 0 48px; }
+    main .post-author-main { min-width: 0; }
+    main .post-author-name {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    main .post-author-meta {
+      display: flex;
+      align-items: baseline;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    main .post-author-time { flex: 0 0 auto; }
+    main .post-author-time + .post-author-description {
+      margin-left: 8px;
+    }
+    main .post-author-description {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    main .post-platform {
+      flex: 0 0 auto;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    main .post-platform-name { white-space: nowrap; }
+    main .comments {
+      margin: 0 32px 4px;
+      padding-top: 24px;
+      border-top: 1px solid #f1f5f9;
+    }
+    [data-theme="dark"] main .comments { border-top-color: #334155; }
+    main .comments-title {
+      margin: 0 0 22px;
+      color: #64748b;
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1.2;
+    }
+    [data-theme="dark"] main .comments-title { color: #94a3b8; }
+    main .comments .comment { gap: 10px; }
+    main .comments .comment + .comment { margin-top: 18px; }
+    main .comments .comment-avatar,
+    main .comments .comment-avatar-placeholder {
+      width: 40px;
+      height: 40px;
+      flex: 0 0 40px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    main .comments .comment-avatar-placeholder,
+    main .comments .comment-reply-avatar-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-weight: 900;
+      background: #e2e8f0;
+    }
+    [data-theme="dark"] main .comments .comment-avatar-placeholder,
+    [data-theme="dark"] main .comments .comment-reply-avatar-placeholder {
+      color: #cbd5e1;
+      background: #334155;
+    }
+    main .comments .comment-main { min-width: 0; flex: 1; }
+    main .comments .comment-author {
+      color: #64748b;
+      font-size: 14px;
+      font-weight: 900;
+      line-height: 1.3;
+    }
+    main .comments .comment-reply-to {
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    main .comments .comment-copy {
+      margin-top: 5px;
+      color: #334155;
+      font-size: 14px;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+    [data-theme="dark"] main .comments .comment-copy { color: #cbd5e1; }
+    main .comments .comment-copy p {
+      margin: 0;
+      white-space: pre-wrap;
+    }
+    main .comments .comment-copy p + p { margin-top: 5px; }
+    main .comments .comment-image {
+      display: block;
+      width: auto;
+      max-width: 220px;
+      max-height: 180px;
+      margin-top: 9px;
+      border-radius: 10px;
+      object-fit: contain;
+      background: #f1f5f9;
+    }
+    [data-theme="dark"] main .comments .comment-image { background: #1e293b; }
+    main .comments .comment-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px 12px;
+      margin-top: 7px;
+      color: #94a3b8;
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    main .comments .comment-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    main .comments .comment-meta .fa-icon { font-size: 11px; }
+    main .comments .comment-replies {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #f8fafc;
+    }
+    [data-theme="dark"] main .comments .comment-replies { background: #0f172a; }
+    main .comments .comment-replies .comment { gap: 8px; }
+    main .comments .comment-replies .comment + .comment { margin-top: 12px; }
+    main .comments .comment-reply-avatar,
+    main .comments .comment-reply-avatar-placeholder {
+      width: 24px;
+      height: 24px;
+      flex: 0 0 24px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    main .comments .comment-replies .comment-author {
+      font-size: 13px;
+      font-weight: 800;
+    }
+    main .comments .comment-replies .comment-copy {
+      margin-top: 3px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    main .comments .comment-replies .comment-meta {
+      margin-top: 5px;
+      font-size: 11px;
+    }
   </style>
 </head>
 <body class="m-0 w-[1000px] break-all font-sans antialiased">

@@ -51,13 +51,18 @@ python -m playwright install chromium
 
 安装完成后重启 AstrBot。若插件市场已经自动安装依赖，无需重复执行 `pip install`。
 
+媒体处理优先使用系统 FFmpeg；没有系统 FFmpeg 时会自动使用 `imageio-ffmpeg` 内置的 `ffmpeg`。`imageio-ffmpeg` 不提供 `ffprobe`，缺少它时仅跳过部分音频探测/转码，不会中断解析。若需要完整能力，建议安装系统 FFmpeg。
+
 ## 丨支持平台
 
-> 当前新版架构只包含抖音解析器。其余旧平台代码仅在 `docs/parser_old/` 中作为重写参考归档，不参与导入、不提供兼容入口，也不会被旧实现恢复。
+> 当前新版架构包含抖音与哔哩哔哩解析器。其余旧平台代码仅在 `docs/parser_old/` 中作为重写参考归档，不参与导入、不提供兼容入口，也不会被旧实现恢复。
 
 | 平台 | 状态 |
 | :--- | :--- |
 | 抖音 | 已迁移 |
+| 哔哩哔哩 | 已迁移（视频、短链、分 P、动态、图文、专栏、直播、番剧、收藏夹） |
+
+哔哩哔哩卡片指标包含播放、点赞、评论、收藏、分享、投币与弹幕；视频链接额外显示画质、分辨率和分集时长，UP 主资料会展示获赞、关注与粉丝数。DASH 音视频流由共享下载器下载后合并，优先避开 PCDN 地址。
 
 ## 丨命令列表
 
@@ -98,6 +103,9 @@ python -m playwright install chromium
 
 - [nonebot-plugin-parser](https://github.com/fllesser/nonebot-plugin-parser)：本项目核心解析能力的重要来源
 - [astrbot_plugin_parser](https://github.com/Zhalslar/astrbot_plugin_parser)：AstrBot 适配版本的 upstream
+- [Zhalslar 饰乐](https://github.com/Zhalslar)：原项目作者
+- [nonebot-plugin-parser-lite](https://github.com/sokoko-org/nonebot-plugin-parser-lite)：哔哩哔哩解析实现参考
+- [karin-plugin-kkk](https://github.com/ikenxuan/karin-plugin-kkk)：默认主题 UI 设计参考
 - [AstrBot](https://github.com/Soulter/AstrBot)：插件运行框架
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)、[gallery-dl](https://github.com/mikf/gallery-dl) 及所有依赖项目的作者
 - 所有提交 Issue、PR 与参与测试的贡献者

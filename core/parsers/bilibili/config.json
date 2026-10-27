@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "name": "bilibili",
+  "display_name": "哔哩哔哩",
+  "default_enabled": true,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填；支持 SESSDATA、bili_jct、DedeUserID 等网页 Cookie",
+      "secret": true,
+      "default": ""
+    },
+    "video_quality": {
+      "type": "select",
+      "label": "视频画质偏好",
+      "hint": "auto 自动选择最高可用画质",
+      "options": [
+        "auto",
+        "8k",
+        "4k",
+        "1080p60",
+        "1080p+",
+        "1080p",
+        "720p",
+        "480p",
+        "360p"
+      ],
+      "default": "auto"
+    },
+    "video_codec": {
+      "type": "select",
+      "label": "视频编码偏好",
+      "options": [
+        "auto",
+        "avc",
+        "hev",
+        "av1"
+      ],
+      "default": "auto"
+    },
+    "danmaku": {
+      "type": "bool",
+      "label": "卡片显示弹幕",
+      "default": true
+    }
+  }
+}

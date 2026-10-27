@@ -72,14 +72,22 @@ class Downloader:
         # 视频信息缓存
         self.info_cache: LimitedSizeDict[str, VideoInfo] = LimitedSizeDict()
         self._active_downloads: dict[Path, Task[Path]] = {}
-        # 用于流式下载的客户端
-        self.client = ClientSession(
-            timeout=ClientTimeout(total=self.cfg.download_timeout)
-        )
+        # aiohttp 的 ClientSession 必须在事件循环内创建。
+        self._client: ClientSession | None = None
+
+    @property
+    def client(self) -> ClientSession:
+        if self._client is None or self._client.closed:
+            self._client = ClientSession(
+                timeout=ClientTimeout(total=self.cfg.download_timeout)
+            )
+        return self._client
 
     async def close(self):
         """关闭网络客户端"""
-        await self.client.close()
+        if self._client is not None and not self._client.closed:
+            await self._client.close()
+        self._client = None
 
     @auto_task
     async def streamd(

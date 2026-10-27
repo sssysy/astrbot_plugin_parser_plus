@@ -1,0 +1,4 @@
+interface:
+  display_name: "AstrBot 平台解析器开发"
+  short_description: "新增、重写和审查项目内各平台解析器的标准流程与约束"
+  default_prompt: "Use $astrbot-parser-platform to add a platform parser following this project's parser architecture."

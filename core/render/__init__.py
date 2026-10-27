@@ -126,11 +126,9 @@ class Renderer:
 
     async def _render_html(self, description: Description) -> str | None:
         context = await self._description_context(description)
-        is_video = description.video is not None
         platform = self._safe_template_name(description.platform.name)
         candidates = [f"{platform}.html"]
-        if is_video:
-            candidates.append("video.html")
+        candidates.append("video.html")
         candidates.append("common.html")
 
         for template_name in candidates:
@@ -184,9 +182,25 @@ class Renderer:
             "blocks": blocks,
             "author": author,
             "metrics": metrics,
+            "cover": await self._cover_context(description),
             "video": video,
             "repost": repost,
         }
+
+    async def _cover_context(self, description: Description) -> str:
+        """图集/图片/视频统一取首图作为卡片主视觉。"""
+        cover_path = None
+        for content in description.contents:
+            if isinstance(content, ImageContent):
+                cover_path = await content.get_path()
+                break
+            if isinstance(content, GraphicsContent):
+                cover_path = await content.get_path()
+                break
+            if isinstance(content, VideoContent):
+                cover_path = await content.get_cover_path()
+                break
+        return await self._path_to_data_uri(cover_path, 2000, 2000)
 
     async def _author_context(self, author: Author | None) -> dict[str, Any] | None:
         if author is None:

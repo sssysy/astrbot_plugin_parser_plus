@@ -46,36 +46,32 @@
     }
     .ambient {
       position: absolute;
-      inset: 0 0 auto;
-      height: 62%;
+      inset: 0;
       z-index: 0;
       overflow: hidden;
-      background:
-        radial-gradient(circle at 8% 8%, rgba(37, 244, 238, .10), transparent 28%),
-        radial-gradient(circle at 90% 28%, rgba(254, 44, 85, .11), transparent 30%),
-        var(--bg);
+      background: var(--bg);
     }
     .ambient-cover {
       position: absolute;
-      inset: -120px;
-      width: calc(100% + 240px);
-      height: calc(100% + 240px);
+      inset: -140px;
+      width: calc(100% + 280px);
+      height: calc(100% + 280px);
       object-fit: cover;
-      opacity: .72;
-      filter: blur(72px) saturate(1.45);
-      transform: scale(1.12);
+      opacity: 1;
+      filter: blur(84px) saturate(1.65);
+      transform: scale(1.14);
     }
     .ambient-wash {
       position: absolute;
       inset: 0;
       background:
-        linear-gradient(180deg, rgba(8, 9, 11, .78) 0%, rgba(8, 9, 11, .48) 42%, rgba(8, 9, 11, .9) 86%, var(--bg) 100%),
-        radial-gradient(circle at 50% 25%, transparent 0%, rgba(0, 0, 0, .3) 72%);
+        linear-gradient(180deg, rgba(8, 9, 11, .68) 0%, rgba(8, 9, 11, .4) 22%, rgba(8, 9, 11, .36) 56%, rgba(8, 9, 11, .56) 84%, rgba(8, 9, 11, .7) 100%),
+        radial-gradient(circle at 50% 25%, transparent 0%, rgba(0, 0, 0, .18) 72%);
     }
     .ambient-grid {
       position: absolute;
       inset: 0;
-      opacity: .22;
+      opacity: .16;
       background-image:
         linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px);
@@ -175,6 +171,8 @@
     }
     .signal-strip {
       display: flex;
+      max-width: 560px;
+      flex-wrap: wrap;
       align-items: flex-start;
       justify-content: flex-end;
       gap: 20px;
@@ -189,7 +187,7 @@
       justify-content: center;
       gap: 6px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 650;
       line-height: 1.2;
       white-space: nowrap;
@@ -205,7 +203,7 @@
     .signal-value {
       margin-top: 6px;
       color: var(--ink);
-      font-size: 21px;
+      font-size: 18px;
       font-weight: 750;
       font-variant-numeric: tabular-nums;
       line-height: 1;
@@ -484,10 +482,10 @@
   </style>
 </head>
 <body>
-  <main class="card video-card">
+  <main class="card media-card">
     <div class="ambient" aria-hidden="true">
-      {% if card.video and card.video.cover %}
-        <img class="ambient-cover" src="{{ card.video.cover }}" alt="">
+      {% if card.cover %}
+        <img class="ambient-cover" src="{{ card.cover }}" alt="">
       {% endif %}
       <div class="ambient-wash"></div>
       <div class="ambient-grid"></div>
@@ -533,7 +531,7 @@
           {% if card.metrics %}
             <div class="signal-strip">
               {% for metric in card.metrics %}
-                <div class="signal"{% if loop.index > 4 %} style="display: none;"{% endif %}>
+                <div class="signal">
                   <div class="signal-head">
                     {% if metric.icon %}
                       <img class="signal-icon" src="{{ metric.icon }}" alt="">
@@ -554,12 +552,12 @@
 
       <section class="hero">
         <div class="cover-frame">
-          {% if card.video and card.video.cover %}
-            <img class="cover" src="{{ card.video.cover }}" alt="{{ card.title or card.platform.display_name }}">
+          {% if card.cover %}
+            <img class="cover" src="{{ card.cover }}" alt="{{ card.title or card.platform.display_name }}">
           {% else %}
             <div class="cover-placeholder">
               {% if card.platform.logo %}<img src="{{ card.platform.logo }}" alt="">{% endif %}
-              <span>{{ card.platform.display_name }} · 视频</span>
+              <span>{{ card.platform.display_name }} · 媒体</span>
             </div>
           {% endif %}
           <div class="hero-top">

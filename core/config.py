@@ -186,7 +186,7 @@ class PluginConfig(ConfigNode):
 
     clean_cron: str
 
-    _plugin_name = "astrbot_plugin_parser"
+    _plugin_name = "astrbot_plugin_parser_plus"
 
     def __init__(self, config: AstrBotConfig, context: Context):
         super().__init__(config)

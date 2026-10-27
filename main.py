@@ -29,6 +29,9 @@ from .core.sender import MessageSender
 from .core.utils import extract_json_url
 
 
+PLUGIN_NAME = "astrbot_plugin_parser_plus"
+
+
 class ParserPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -62,25 +65,25 @@ class ParserPlugin(Star):
             self.cfg.parser_config_dir,
         )
         self.context.register_web_api(
-            "/astrbot_plugin_parser/parser-settings/parsers",
+            f"{PLUGIN_NAME}/parser-settings/parsers",
             self.page_list_parsers,
             ["GET"],
             "列出解析器配置",
         )
         self.context.register_web_api(
-            "/astrbot_plugin_parser/parser-settings/parser/<name>",
+            f"{PLUGIN_NAME}/parser-settings/parser/<name>",
             self.page_save_parser,
             ["POST"],
             "保存解析器配置",
         )
         self.context.register_web_api(
-            "/astrbot_plugin_parser/parser-settings/skins",
+            f"{PLUGIN_NAME}/parser-settings/skins",
             self.page_list_skins,
             ["GET"],
             "列出皮肤包",
         )
         self.context.register_web_api(
-            "/astrbot_plugin_parser/parser-settings/skin",
+            f"{PLUGIN_NAME}/parser-settings/skin",
             self.page_save_skin,
             ["POST"],
             "切换皮肤包",

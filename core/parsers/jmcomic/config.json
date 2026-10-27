@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "name": "jmcomic",
+  "display_name": "jmcomic",
+  "default_enabled": true,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填",
+      "secret": true,
+      "default": ""
+    },
+    "image_send_mode": {
+      "type": "select",
+      "label": "漫画发送方式",
+      "options": [
+        "merge",
+        "pdf",
+        "ignore"
+      ],
+      "default": "pdf"
+    },
+    "nsfw": {
+      "type": "select",
+      "label": "漫画封面处理方式",
+      "options": [
+        "send",
+        "blur",
+        "ignore"
+      ],
+      "default": "blur"
+    },
+    "max_page": {
+      "type": "int",
+      "label": "最大页数",
+      "hint": "发送漫画时接受的最大页数，超过则跳过下载发送。0则不限制",
+      "default": 50
+    }
+  }
+}

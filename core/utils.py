@@ -10,6 +10,8 @@ from urllib.parse import unquote, urlparse
 
 from astrbot.api import logger
 
+from .ffmpeg import FFmpegUnavailable, get_ffmpeg_path, run_ffprobe
+
 K = TypeVar("K")
 V = TypeVar("V")
 
@@ -45,14 +47,23 @@ async def exec_ffmpeg_cmd(cmd: list[str]) -> None:
     Args:
         cmd (list[str]): 命令序列
     """
+    executable = cmd[0]
+    if executable == "ffmpeg":
+        try:
+            cmd = [get_ffmpeg_path(), *cmd[1:]]
+        except FFmpegUnavailable as exc:
+            raise RuntimeError(str(exc)) from exc
     try:
         process = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         _, stderr = await process.communicate()
         return_code = process.returncode
-    except FileNotFoundError:
-        raise RuntimeError("ffmpeg 未安装或无法找到可执行文件")
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "ffmpeg 未安装或无法找到可执行文件；"
+            "可安装系统 FFmpeg，或运行 `pip install imageio-ffmpeg` 后重启插件"
+        ) from exc
 
     if return_code != 0:
         error_msg = stderr.decode().strip()
@@ -244,8 +255,7 @@ async def transcode_video_audio_to_lc(path: Path) -> Path:
     用于解决 QQ 等平台因音频 profile（如 HE-AACv2）导致的视频无法正常渲染问题。
     """
     try:
-        probe = await asyncio.create_subprocess_exec(
-            "ffprobe",
+        returncode, out, _ = await run_ffprobe(
             "-v",
             "error",
             "-select_streams",
@@ -255,12 +265,11 @@ async def transcode_video_audio_to_lc(path: Path) -> Path:
             "-of",
             "default=nw=1:nk=1",
             str(path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
         )
-        out, _ = await probe.communicate()
+        if returncode != 0:
+            raise RuntimeError("ffprobe 不可用")
         profile = (out or b"").decode(errors="ignore").strip()
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.warning(f"[视频] ffprobe 探测失败，跳过转码: {e}")
         return path
 
@@ -268,9 +277,11 @@ async def transcode_video_audio_to_lc(path: Path) -> Path:
         return path
 
     out_path = path.with_name(f"{path.stem}_lc.mp4")
+    if out_path.exists():
+        return out_path
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg",
+            get_ffmpeg_path(),
             "-y",
             "-v",
             "error",
@@ -289,7 +300,7 @@ async def transcode_video_audio_to_lc(path: Path) -> Path:
             stderr=asyncio.subprocess.PIPE,
         )
         _, err = await proc.communicate()
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.warning(f"[视频] ffmpeg 调用异常，跳过转码: {e}")
         return path
 

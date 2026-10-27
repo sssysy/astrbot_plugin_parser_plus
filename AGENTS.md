@@ -29,7 +29,7 @@
 ## 2. 目录结构
 
 ```text
-astrbot_plugin_parser/
+astrbot_plugin_parser_plus/
 ├── main.py                     # 插件入口、事件分发、命令、公开解析 API
 ├── metadata.yaml               # 插件元数据
 ├── _conf_schema.json           # 仅全局配置 Schema，不包含解析器配置
@@ -245,7 +245,7 @@ PARSER = FooParser
 
 - `_conf_schema.json` 只保留插件全局配置；解析器配置、启停和皮肤设置由插件 Page 负责。
 - 每个解析器包内的 `config.json` 只描述 `schema_version`、`name`、`display_name`、`default_enabled` 和 `fields`，不得写入真实 Cookie 或用户值。
-- 用户实际配置固定写入 `plugin_data/astrbot_plugin_parser/parser_config/<name>.json`，结构为 `schema_version`、`enabled`、`values`。
+- 用户实际配置固定写入 `plugin_data/astrbot_plugin_parser_plus/parser_config/<name>.json`，结构为 `schema_version`、`enabled`、`values`。
 - 禁止向 `core/parsers/<name>/config.json` 回写用户配置；源码目录必须可只读运行。
 - `enabled` 是 parser 是否启用的唯一来源；页面保存后由注册中心重建运行快照。
 - 解析器配置字段由各包 `config.json` 自描述，页面按 `fields` 动态渲染，不在前端硬编码平台字段。
@@ -304,7 +304,7 @@ PARSER = FooParser
 - [ ] 新 parser 已是 `core/parsers/<name>/` 包，并在 `__init__.py` 导出 `PARSER`。
 - [ ] 目录名、`config.json.name`、`platform.name` 三者一致。
 - [ ] 新 parser 的默认值与页面字段只写在包内 `config.json`，没有进入 `_conf_schema.json`。
-- [ ] 用户配置只写入 `plugin_data/astrbot_plugin_parser/parser_config/`。
+- [ ] 用户配置只写入 `plugin_data/astrbot_plugin_parser_plus/parser_config/`。
 - [ ] 旧解析器已归档到 `docs/parser_old/` 且不会参与导入。
 - [ ] `@handle()` 关键词唯一，正则只匹配明确 host/path。
 - [ ] API 请求异步、有限重试，媒体下载经过 `Downloader`。

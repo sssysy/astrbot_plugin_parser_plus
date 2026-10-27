@@ -32,7 +32,8 @@
 
 - [ ] 默认值和页面字段定义位于解析器包内 `config.json`。
 - [ ] 用户值位于 `plugin_data/astrbot_plugin_parser_plus/parser_config/`。
-- [ ] 显式设置了 `default_enabled`。
+- [ ] 显式设置了 `default_enabled: false`，没有默认启用任何解析器。
+- [ ] 修改默认值没有覆盖已有用户配置中的 `enabled`。
 - [ ] 敏感字段标记 `secret: true`，且不会通过配置列表接口返回。
 - [ ] `_conf_schema.json` 只包含插件全局配置。
 - [ ] 没有恢复旧 `parsers_template`/`default_template.json` 兼容层。

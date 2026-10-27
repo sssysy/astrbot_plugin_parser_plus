@@ -70,6 +70,8 @@ plugin_data/astrbot_plugin_parser_plus/parser_config/<name>.json
 
 用户配置包含 `schema_version`、`enabled` 和 `values`。`enabled` 是解析器启停的唯一来源。敏感字段必须标记 `"secret": true`，配置列表接口不得返回其值。
 
+所有解析器的 `default_enabled` 必须为 `false`。新增解析器默认关闭，修改现有解析器默认值时也不得改为 `true`；用户需要时在配置页显式启用。修改 `default_enabled` 只影响首次生成用户配置，不得覆盖已有 `parser_config/<name>.json` 中的 `enabled`。
+
 `_conf_schema.json` 只保存插件全局配置，不再包含解析器配置；不得恢复 `parsers_template` 或 `default_template.json`。
 
 新增或修改配置字段时，阅读 [references/configuration.md](references/configuration.md)。

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "name": "weibo",
   "display_name": "微博",
-  "default_enabled": true,
+  "default_enabled": false,
   "fields": {
     "use_proxy": {
       "type": "bool",

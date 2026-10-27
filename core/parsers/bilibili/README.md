@@ -5,7 +5,7 @@
 - 入口：`parser.py`，只通过 `@handle` 注册。
 - 数据：`models.py`，平台响应和卡片指标转换。
 - 工具：`utils.py`，BV/AV 转换、媒体 host 校验、动态富文本提取。
-- 配置：`config.json`，默认启用，Cookie 字段为 secret。
+- 配置：`config.json`，默认关闭，Cookie 字段为 secret。
 - 画质：`auto` 请求最高可用清晰度；也可选 8K、4K、1080P60、1080P+、1080P、720P、480P、360P。
 - 编码：`auto` 优先 AVC，其次 HEVC、AV1；也可固定偏好。
 

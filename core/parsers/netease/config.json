@@ -2,7 +2,7 @@
   "schema_version": 1,
   "name": "netease",
   "display_name": "网易云音乐",
-  "default_enabled": true,
+  "default_enabled": false,
   "fields": {
     "use_proxy": {
       "type": "bool",

@@ -90,7 +90,6 @@
   function createDraft(parser) {
     const values = {};
     for (const field of parser.fields) {
-      if (field.secret) continue;
       const saved = parser.values?.[field.key];
       values[field.key] = cloneValue(
         saved === undefined ? field.default : saved,
@@ -101,11 +100,6 @@
       baseEnabled: Boolean(parser.enabled),
       values,
       baseValues: cloneValues(values),
-      secrets: Object.fromEntries(
-        parser.fields
-          .filter((field) => field.secret)
-          .map((field) => [field.key, ""]),
-      ),
       clearedSecrets: new Set(),
     };
   }
@@ -123,9 +117,6 @@
     const changed = Object.keys(draft.values).filter(
       (key) => valueKey(draft.values[key]) !== valueKey(draft.baseValues[key]),
     );
-    for (const [key, value] of Object.entries(draft.secrets)) {
-      if (value.trim() && !changed.includes(key)) changed.push(key);
-    }
     for (const key of draft.clearedSecrets) {
       if (!changed.includes(key)) changed.push(key);
     }
@@ -533,7 +524,7 @@
               ? `<section class="field-section">
                   <header class="field-section__header">
                     <h2>访问凭证</h2>
-                    <p>已保存的值不会显示在页面中。</p>
+                <p>默认遮罩显示，可点击眼睛查看或直接编辑。</p>
                   </header>
                   <div class="js-secret-fields"></div>
                 </section>`
@@ -682,9 +673,9 @@
       id,
       type: "password",
       label: field.label,
-      value: draft.secrets[field.key] || "",
+      value: String(draft.values[field.key] ?? ""),
       onInput: (value) => {
-        draft.secrets[field.key] = value;
+        draft.values[field.key] = value;
         if (value && draft.clearedSecrets.has(field.key)) {
           draft.clearedSecrets.delete(field.key);
         }
@@ -714,8 +705,8 @@
       draft.clearedSecrets.has(field.key)
         ? "保存后将清除该凭证。"
         : field.configured
-          ? "已配置。留空保持当前值。"
-          : "尚未配置。留空则不设置凭证。",
+          ? "已配置。可查看、编辑或清除。"
+          : "尚未配置。可直接输入凭证。",
     );
     const clear = createElement(
       "button",
@@ -730,7 +721,7 @@
         draft.clearedSecrets.delete(field.key);
       } else {
         draft.clearedSecrets.add(field.key);
-        draft.secrets[field.key] = "";
+        draft.values[field.key] = "";
         input.input.value = "";
       }
       renderDetail();
@@ -761,7 +752,6 @@
   function buildPayload(parser, draft) {
     const values = {};
     for (const field of parser.fields) {
-      if (field.secret) continue;
       const value = draft.values[field.key];
       if (field.type === "int" || field.type === "float") {
         values[field.key] = readNumber(field, value);
@@ -771,14 +761,6 @@
         values[field.key] = Array.isArray(value) ? value : [];
       } else {
         values[field.key] = String(value ?? "");
-      }
-    }
-    for (const field of parser.fields) {
-      if (!field.secret) continue;
-      if (draft.clearedSecrets.has(field.key)) {
-        values[field.key] = "";
-      } else if (draft.secrets[field.key].trim()) {
-        values[field.key] = draft.secrets[field.key];
       }
     }
     return { enabled: draft.enabled, values };
@@ -818,17 +800,14 @@
       for (const { parser, draft } of dirty) {
         parser.enabled = draft.enabled;
         for (const field of parser.fields) {
-          if (!field.secret && field.key in draft.values) {
+          if (field.key in draft.values) {
             parser.values[field.key] = cloneValue(draft.values[field.key]);
           }
         }
         draft.baseEnabled = draft.enabled;
         draft.baseValues = cloneValues(draft.values);
         for (const field of parser.fields) {
-          if (field.secret) {
-            draft.secrets[field.key] = "";
-            draft.clearedSecrets.delete(field.key);
-          }
+          draft.clearedSecrets.delete(field.key);
         }
       }
       state.saving = false;

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "name": "qqmusic",
   "display_name": "QQ音乐",
-  "default_enabled": true,
+  "default_enabled": false,
   "fields": {
     "use_proxy": {
       "type": "bool",

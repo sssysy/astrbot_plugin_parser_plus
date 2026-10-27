@@ -2,7 +2,7 @@
   "schema_version": 1,
   "name": "zhihu",
   "display_name": "知乎",
-  "default_enabled": true,
+  "default_enabled": false,
   "fields": {
     "use_proxy": {
       "type": "bool",

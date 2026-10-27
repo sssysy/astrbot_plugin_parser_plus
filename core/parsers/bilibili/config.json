@@ -2,7 +2,7 @@
   "schema_version": 1,
   "name": "bilibili",
   "display_name": "哔哩哔哩",
-  "default_enabled": true,
+  "default_enabled": false,
   "fields": {
     "use_proxy": {
       "type": "bool",

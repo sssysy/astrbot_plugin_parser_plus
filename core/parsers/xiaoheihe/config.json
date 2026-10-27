@@ -2,7 +2,7 @@
   "schema_version": 1,
   "name": "xiaoheihe",
   "display_name": "小黑盒",
-  "default_enabled": true,
+  "default_enabled": false,
   "fields": {
     "use_proxy": {
       "type": "bool",

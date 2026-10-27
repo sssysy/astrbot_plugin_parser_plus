@@ -9,7 +9,7 @@
   "schema_version": 1,
   "name": "example",
   "display_name": "示例平台",
-  "default_enabled": true,
+  "default_enabled": false,
   "fields": {
     "use_proxy": {
       "type": "bool",
@@ -58,7 +58,7 @@ plugin_data/astrbot_plugin_parser_plus/parser_config/<name>.json
 ```json
 {
   "schema_version": 1,
-  "enabled": true,
+  "enabled": false,
   "values": {
     "use_proxy": false,
     "cookies": "",
@@ -68,6 +68,8 @@ plugin_data/astrbot_plugin_parser_plus/parser_config/<name>.json
 ```
 
 不得把用户值写回源码目录，也不得为解析器另设第二个全局启用开关。
+
+所有解析器默认关闭：源码 `config.json` 的 `default_enabled` 必须为 `false`。新增解析器和现有解析器都不得默认启用；用户通过配置页显式开启。该默认值只用于首次生成用户配置，已有配置中的 `enabled` 不得被覆盖。
 
 ## 读取配置
 

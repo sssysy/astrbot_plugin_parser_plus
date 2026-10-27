@@ -19,6 +19,7 @@ from ..base import BaseParser, handle
 
 API_URL = "https://whatslink.info/api/v1/link"
 SCREENSHOT_HOST = "whatslink.info"
+RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
 def format_size(size_bytes: object) -> str:
@@ -69,27 +70,47 @@ class MagnetParser(BaseParser):
         super().__init__(config, downloader)
 
     async def _fetch_info(self, magnet: str) -> dict[str, Any]:
-        try:
-            async with self.session.get(
-                API_URL,
-                params={"url": magnet},
-                headers=self.headers,
-                proxy=self.proxy,
-            ) as resp:
-                if resp.status >= 400:
-                    raise ParseException(f"磁力解析失败: HTTP {resp.status}")
-                data = await resp.json(content_type=None)
-        except (ClientError, TimeoutError) as exc:
-            raise ParseException("磁力解析请求失败") from exc
-        except ValueError as exc:
-            raise ParseException("磁力接口返回数据异常") from exc
+        retries = min(max(0, self.cfg.download_retry_times), 2)
+        last_error: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                async with self.session.get(
+                    API_URL,
+                    params={"url": magnet},
+                    headers=self.headers,
+                    proxy=self.proxy,
+                ) as resp:
+                    if resp.status in RETRYABLE_STATUSES:
+                        last_error = ClientError(
+                            f"service unavailable: HTTP {resp.status}"
+                        )
+                        if attempt < retries:
+                            await asyncio.sleep(1 + attempt)
+                            continue
+                        raise ParseException(
+                            "磁力解析服务暂时不可用，请稍后重试"
+                        ) from last_error
+                    if resp.status >= 400:
+                        raise ParseException(f"磁力解析失败: HTTP {resp.status}")
+                    data = await resp.json(content_type=None)
+            except ParseException:
+                raise
+            except (ClientError, TimeoutError) as exc:
+                last_error = exc
+                if attempt < retries:
+                    await asyncio.sleep(1 + attempt)
+                    continue
+                raise ParseException("磁力解析请求失败，请稍后重试") from exc
+            except ValueError as exc:
+                raise ParseException("磁力接口返回数据异常") from exc
 
-        if not isinstance(data, dict):
-            raise ParseException("磁力接口返回数据异常")
-        error = data.get("error")
-        if isinstance(error, str) and error.strip():
-            raise ParseException("磁力链接无法识别或资源不存在")
-        return data
+            if not isinstance(data, dict):
+                raise ParseException("磁力接口返回数据异常")
+            error = data.get("error")
+            if isinstance(error, str) and error.strip():
+                raise ParseException("磁力链接无法识别或资源不存在")
+            return data
+        raise ParseException("磁力解析请求失败，请稍后重试") from last_error
 
     @staticmethod
     def _blur(image_path: Path, radius: int = 15) -> Path:

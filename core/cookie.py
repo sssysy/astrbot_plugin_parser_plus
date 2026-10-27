@@ -126,6 +126,53 @@ class CookieJar:
         if self.cookie_file.exists() or self.cookies:
             self.save_to_file()
 
+    def sync_from_http_cookiejar(self, cookiejar: cookiejar.CookieJar) -> None:
+        """合并第三方 HTTP 客户端维护的 Cookie，供 curl_cffi 会话持久化。"""
+        updated = False
+        for source in cookiejar:
+            domain = str(getattr(source, "domain", "") or self.domain).lower()
+            path = str(getattr(source, "path", "") or "/")
+            name = str(getattr(source, "name", "") or "")
+            if not name:
+                continue
+            expires = int(getattr(source, "expires", 0) or 0)
+            secure = bool(getattr(source, "secure", False))
+            value = str(getattr(source, "value", "") or "")
+            existing = next(
+                (
+                    item
+                    for item in self.cookies
+                    if item.name == name
+                    and item.domain == domain
+                    and item.path == path
+                ),
+                None,
+            )
+            if existing is not None:
+                if (
+                    existing.value == value
+                    and existing.secure == secure
+                    and existing.expires == expires
+                ):
+                    continue
+                existing.value = value
+                existing.secure = secure
+                existing.expires = expires
+            else:
+                self.cookies.append(
+                    Cookie(
+                        domain=domain,
+                        path=path,
+                        name=name,
+                        value=value,
+                        secure=secure,
+                        expires=expires,
+                    )
+                )
+            updated = True
+        if updated:
+            self.purge_expired()
+
     def _matching_cookies(
         self, path: str = "/", secure: bool = True, domain: str | None = None
     ) -> list[Cookie]:

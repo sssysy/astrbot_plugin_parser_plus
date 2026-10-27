@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "name": "x",
+  "display_name": "X",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填；敏感内容、翻译和部分受限帖子可能需要网页 Cookie",
+      "secret": true,
+      "default": ""
+    },
+    "translate": {
+      "type": "bool",
+      "label": "显示 Grok 翻译",
+      "hint": "仅在 X 返回译文或已填写 Cookie 时尝试，失败不影响原帖解析",
+      "default": false
+    },
+    "include_quoted_media": {
+      "type": "bool",
+      "label": "发送引用帖媒体",
+      "hint": "卡片始终展示引用帖；开启后引用帖媒体也作为最终内容发送",
+      "default": false
+    },
+    "include_link_card": {
+      "type": "bool",
+      "label": "显示链接卡片",
+      "hint": "在描述卡片中展示 X 解析出的外部链接标题、站点和描述",
+      "default": true
+    },
+    "sensitive_mode": {
+      "type": "select",
+      "label": "敏感内容处理",
+      "hint": "warn 保留内容并在卡片提示；skip 跳过敏感帖解析",
+      "options": [
+        "warn",
+        "skip"
+      ],
+      "default": "warn"
+    }
+  }
+}

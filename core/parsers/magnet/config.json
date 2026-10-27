@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "name": "magnet",
+  "display_name": "磁力链接",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "image_send_mode": {
+      "type": "select",
+      "label": "预览图发送方式",
+      "hint": "磁力链接解析到预览图后的发送方式",
+      "options": [
+        "none",
+        "blur",
+        "original"
+      ],
+      "default": "original"
+    }
+  }
+}

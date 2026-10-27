@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "name": "iwara",
+  "display_name": "Iwara",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填，私密作品可能需要登录 Cookie",
+      "secret": true,
+      "default": ""
+    },
+    "video_quality": {
+      "type": "select",
+      "label": "视频画质",
+      "options": [
+        "Source",
+        "preview",
+        "540",
+        "360"
+      ],
+      "default": "Source"
+    },
+    "nsfw": {
+      "type": "select",
+      "label": "R18 内容处理",
+      "options": [
+        "blur",
+        "send",
+        "ignore"
+      ],
+      "default": "blur"
+    }
+  }
+}

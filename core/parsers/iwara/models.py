@@ -8,6 +8,7 @@ from urllib.parse import quote, urlparse
 from ...exception import ParseException
 
 IMAGE_HOST = "i.iwara.tv"
+DEFAULT_AVATAR_URL = "https://www.iwara.tv/images/default-avatar.jpg"
 QUALITY_FALLBACK = ("Source", "preview", "540", "360")
 
 
@@ -67,11 +68,11 @@ class IwaraImage:
 def avatar_url(user: dict[str, Any]) -> str | None:
     avatar = user.get("avatar")
     if not isinstance(avatar, dict):
-        return None
+        return DEFAULT_AVATAR_URL
     avatar_id = avatar.get("id")
     avatar_name = avatar.get("name")
     if not isinstance(avatar_id, str) or not isinstance(avatar_name, str):
-        return None
+        return DEFAULT_AVATAR_URL
     return (
         f"https://{IMAGE_HOST}/image/avatar/{quote(avatar_id, safe='')}/"
         f"{quote(avatar_name, safe='')}"

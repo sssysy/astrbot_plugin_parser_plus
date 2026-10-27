@@ -11,12 +11,19 @@ from aiohttp import ClientError
 
 from ...config import PluginConfig
 from ...cookie import CookieJar
-from ...data import ContentItem, Description, Metric, Platform, TextContent
+from ...data import (
+    ContentItem,
+    Description,
+    Metric,
+    Platform,
+    TextContent,
+    VideoMeta,
+)
 from ...download import Downloader
 from ...exception import ParseException
 from ..base import BaseParser, handle
 from .cards import link_text, poll_text
-from .media import description_contents, first_image_url, tweet_contents
+from .media import description_contents, first_cover_url, tweet_contents
 from .models import XTweet, decode_response
 
 V2_BEARER = (
@@ -115,6 +122,14 @@ def _safe_error_text(status: int, reason: str) -> str:
     if not text or len(text) > 80:
         text = "请求失败"
     return f"X 接口请求失败（HTTP {status}，{text}）"
+
+
+def _resolution(media: Any) -> str | None:
+    variants = sorted(media.mp4_variants, key=lambda item: item.bitrate, reverse=True)
+    for variant in variants:
+        if match := re.search(r"/(\d+)x(\d+)/", variant.url):
+            return f"{match.group(1)} × {match.group(2)}"
+    return None
 
 
 class XParser(BaseParser):
@@ -392,6 +407,21 @@ class XParser(BaseParser):
         text = None
         if tweet.possibly_sensitive:
             text = "该帖子被作者标记为敏感内容。"
+        video = None
+        video_media = next(
+            (media for media in tweet.media if media.kind == "video"),
+            None,
+        )
+        if video_media is not None:
+            variant = video_media.best_variant
+            video = VideoMeta(
+                cover=self._cover_task(video_media.cover_url),
+                duration=video_media.duration,
+                quality=(
+                    f"{variant.bitrate // 1000} kbps" if variant is not None else None
+                ),
+                resolution=_resolution(video_media),
+            )
         return Description(
             platform=self.platform,
             author=self._author(tweet),
@@ -400,7 +430,8 @@ class XParser(BaseParser):
             timestamp=tweet.timestamp or None,
             url=tweet.source_url or None,
             contents=contents,
-            cover=self._cover_task(first_image_url(tweet)),
+            cover=self._cover_task(first_cover_url(tweet)),
+            video=video,
             repost=repost,
         )
 

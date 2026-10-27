@@ -92,3 +92,14 @@ def first_image_url(tweet: XTweet) -> str:
         if media.kind == "photo" and media.source_url:
             return media.source_url
     return ""
+
+
+def first_cover_url(tweet: XTweet) -> str:
+    """卡片主视觉：文章/图片优先，视频和 GIF 使用其封面。"""
+    for media in tweet.media:
+        if media.kind == "photo" and media.source_url:
+            return media.source_url
+    for media in tweet.media:
+        if media.cover_url:
+            return media.cover_url
+    return tweet.article_cover_url

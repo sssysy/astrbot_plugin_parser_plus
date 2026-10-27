@@ -18,6 +18,14 @@ from ..base import BaseParser, handle
 
 API_BASE = "https://nextmusic.toubiec.cn/api"
 API_REFERER = "https://wyapi.toubiec.cn/"
+MEDIA_HEADERS = {
+    "Referer": "https://music.163.com/",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/146.0.0.0 Safari/537.36"
+    ),
+}
 AUDIO_EXTENSIONS = frozenset({"flac", "wav", "m4a", "aac", "mp3"})
 
 
@@ -60,7 +68,7 @@ class NeteaseParser(BaseParser):
 
     def __init__(self, config: PluginConfig, downloader: Downloader):
         super().__init__(config, downloader)
-        self.headers.update({"Referer": API_REFERER})
+        self.headers.update(MEDIA_HEADERS)
 
     async def _fetch(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         request_payload = {
@@ -72,7 +80,7 @@ class NeteaseParser(BaseParser):
             async with self.session.post(
                 f"{API_BASE}/{endpoint}",
                 json=request_payload,
-                headers=self.headers,
+                headers={**self.headers, "Referer": API_REFERER},
                 proxy=self.proxy,
             ) as resp:
                 if resp.status >= 400:

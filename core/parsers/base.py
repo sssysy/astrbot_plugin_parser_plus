@@ -237,12 +237,18 @@ class BaseParser:
         url: str | None = None,
         extra: dict[str, Any] | None = None,
         metrics: Iterable[Metric] | None = None,
+        cover: str | Path | Task[Path] | None = None,
         repost: Description | None = None,
     ) -> None:
         """发送通用描述卡片。"""
         if _DESCRIPTION_SINK.get() is None:
             return
         card_contents, trailing_text = self._normalize_desc_contents(contents)
+        cover_task = cover
+        if isinstance(cover, str):
+            cover_task = self.downloader.download_img(
+                cover, headers=self.headers, proxy=self.proxy
+            )
         description = Description(
             platform=self.platform,
             title=title,
@@ -253,6 +259,7 @@ class BaseParser:
             contents=card_contents,
             extra=extra or {},
             metrics=list(metrics or ()),
+            cover=cover_task,
             repost=repost,
         )
         await self._emit_description(description)

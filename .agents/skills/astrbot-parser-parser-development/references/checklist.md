@@ -21,7 +21,7 @@
 ## 描述与媒体
 
 - [ ] 使用 `send_desc_common()` 或 `send_desc_video()` 发送描述卡片。
-- [ ] 图集、图片和视频的卡片数据使用标准 `Description.contents` / `Description.video`，渲染层会取首图作为媒体卡片主视觉。
+- [ ] 图集/图片的描述卡片只传第一张图片作为 `cover`，视频传封面；最终媒体仍按完整有序列表通过 `Description.contents` 传入。
 - [ ] 最终结果是按发送顺序排列的 `parse_result([...])`。
 - [ ] 描述阶段结束前没有启动最终媒体下载。
 - [ ] 媒体使用 `self.downloader` 或 `BaseParser.create_*_content()`。

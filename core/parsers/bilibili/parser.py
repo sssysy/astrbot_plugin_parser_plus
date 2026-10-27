@@ -798,17 +798,6 @@ class BilibiliParser(BaseParser):
         return dynamic
 
     async def _finish_dynamic(self, dynamic: BiliDynamicContent):
-        card_contents: list[MediaContent] = []
-        if dynamic.images:
-            card_contents.extend(
-                self.create_image_contents(dynamic.images, headers=self.media_headers)
-            )
-        if dynamic.cover:
-            card_contents.append(
-                self.create_graphics_content(
-                    dynamic.cover, headers=self.media_headers
-                )
-            )
         author = self.create_author(
             dynamic.author.name or "哔哩哔哩用户",
             clean_cover(dynamic.author.face),
@@ -819,8 +808,9 @@ class BilibiliParser(BaseParser):
         await self.send_desc_common(
             dynamic.title,
             author,
-            card_contents,
+            [],
             text=dynamic.text,
+            cover=next(iter(dynamic.images), dynamic.cover),
             timestamp=dynamic.author.timestamp,
             url=dynamic.url,
             metrics=dynamic.metrics,

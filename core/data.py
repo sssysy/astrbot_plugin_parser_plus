@@ -256,6 +256,8 @@ class Description:
     contents: list[MediaContent] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
     metrics: list[Metric] = field(default_factory=list)
+    cover: Path | Task[Path] | None = None
+    """媒体卡片主视觉；由解析器按图集/图片/视频规则提供。"""
     video: VideoMeta | None = None
     repost: "Description | None" = None
 

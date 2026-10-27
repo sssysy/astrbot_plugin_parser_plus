@@ -382,6 +382,17 @@ class DouyinParser(BaseParser):
                 url=aweme.short_url,
                 metrics=aweme.metrics,
             )
+        elif aweme.images:
+            await self.send_desc_common(
+                aweme.display_text or None,
+                author,
+                [],
+                cover=aweme.cover_url,
+                text=aweme.text,
+                timestamp=aweme.create_time,
+                url=aweme.short_url,
+                metrics=aweme.metrics,
+            )
         elif aweme.is_video and selected is not None and aweme.video is not None:
             await self.send_desc_video(
                 aweme.display_text or None,
@@ -400,8 +411,9 @@ class DouyinParser(BaseParser):
             await self.send_desc_common(
                 aweme.display_text or None,
                 author,
-                contents,
+                [],
                 text=aweme.text,
+                cover=aweme.cover_url,
                 timestamp=aweme.create_time,
                 url=aweme.short_url,
                 metrics=aweme.metrics,

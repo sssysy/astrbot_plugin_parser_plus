@@ -46,7 +46,7 @@ core/parsers/<name>/
 - 解析失败必须抛出 `ParseException` 或其子类，不得返回占位媒体。
 - `__init__` 中不得发起网络请求或执行长时间阻塞操作。
 - 解析器不得直接构造 AstrBot 消息组件。
-- 图集、图片和视频统一使用 `core/render/default/video.html` 媒体卡片；渲染层会把图集/图片第一张或视频封面作为卡片主视觉 `card.cover`。
+- 图集、图片和视频统一使用 `core/render/default/video.html` 媒体卡片。解析器负责构造卡片主视觉：图集/图片只传第一张图，视频传封面，并通过 `send_desc_common(cover=...)` 或 `send_desc_video(cover=...)` 提供。
 
 创建或重写解析器前，阅读 [references/parser-package.md](references/parser-package.md)。
 
@@ -95,7 +95,7 @@ plugin_data/astrbot_plugin_parser_plus/parser_config/<name>.json
 - 保持 `ParserPlugin.on_message` 是唯一自动消息入口。
 - 不添加文字回退、`SendGroup`、按媒体类型重排或第二个自动链接入口。
 - 卡片只能通过 `core/render/Renderer` 渲染，消息只能通过 `core/sender.py` 发送。
-- `core/render/default/video.html` 是图集/图片/视频通用媒体模板；新增解析器必须继续通过 `Description.contents` 或 `Description.video` 提供媒体元信息，不得直接拼接模板 HTML 或为媒体类型另建卡片入口。
+- `core/render/default/video.html` 是图集/图片/视频通用媒体模板；新增解析器必须通过 `Description.cover`、`Description.contents` 和 `Description.video` 提供媒体元信息，不得直接拼接模板 HTML 或为媒体类型另建卡片入口。
 - 不加入 QZone、SnowLuma 或 `gsuid_core` 运行时依赖。
 - 不为 `astrbot_plugin_parser_extensions`、旧解析器字段或旧导入路径增加兼容层。
 - `docs/parser_old/` 只供重写参考，不得导入、扫描、注册、包装或恢复其中的旧实现。

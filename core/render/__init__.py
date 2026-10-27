@@ -182,24 +182,18 @@ class Renderer:
             "blocks": blocks,
             "author": author,
             "metrics": metrics,
-            "cover": await self._cover_context(description),
+            "cover": await self._cover_context(description.cover),
             "video": video,
             "repost": repost,
         }
 
-    async def _cover_context(self, description: Description) -> str:
-        """图集/图片/视频统一取首图作为卡片主视觉。"""
-        cover_path = None
-        for content in description.contents:
-            if isinstance(content, ImageContent):
-                cover_path = await content.get_path()
-                break
-            if isinstance(content, GraphicsContent):
-                cover_path = await content.get_path()
-                break
-            if isinstance(content, VideoContent):
-                cover_path = await content.get_cover_path()
-                break
+    async def _cover_context(
+        self, cover: Path | Awaitable[Path] | None
+    ) -> str:
+        """解析器传入的媒体卡片主视觉。"""
+        cover_path = cover
+        if cover_path is not None and not isinstance(cover_path, Path):
+            cover_path = await cover_path
         return await self._path_to_data_uri(cover_path, 2000, 2000)
 
     async def _author_context(self, author: Author | None) -> dict[str, Any] | None:

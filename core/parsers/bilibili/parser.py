@@ -18,6 +18,16 @@ from ...data import Author, MediaContent, Metric
 from ...download import Downloader
 from ...exception import ParseException
 from ..base import BaseParser, Platform, handle
+from .auth import (
+    BiliAuthError,
+    BiliCredential,
+    PollResult,
+    QrLogin,
+    load_credential,
+    poll_login,
+    refresh_credential,
+    save_credential,
+)
 from .models import (
     BiliDynamicAuthor,
     BiliDynamicContent,
@@ -97,6 +107,9 @@ class BilibiliParser(BaseParser):
             }
         )
         self.cookiejar = CookieJar(config, self.mycfg, domain="bilibili.com")
+        self._credential: BiliCredential | None = None
+        self._credential_file = self.cfg.cookie_dir / "bilibili_credential.json"
+        self._credential_lock = asyncio.Lock()
         self._set_cookies()
         self._user_cache: dict[int | str, BiliUserCard | None] = {}
 
@@ -113,6 +126,8 @@ class BilibiliParser(BaseParser):
 
     def _set_cookies(self) -> None:
         cookies_str = self.cookiejar.cookies_str
+        if self._credential is not None:
+            cookies_str = self._credential.cookie_header
         if cookies_str:
             self.headers["Cookie"] = cookies_str
 
@@ -327,9 +342,10 @@ class BilibiliParser(BaseParser):
                 f"视频时长超过限制（{self.cfg.source_max_minute} 分钟）"
             )
 
+        await self._ensure_credential()
         stream = await self._fetch_stream(
             bvid=info.bvid,
-            aid=info.aid or avid or 0,
+            aid=info.aid or 0,
             cid=cid,
             duration=pages_duration,
         )
@@ -578,7 +594,51 @@ class BilibiliParser(BaseParser):
 
     async def close_session(self) -> None:
         self._user_cache.clear()
+        self._credential = None
         await super().close_session()
+
+    async def _ensure_credential(self) -> BiliCredential | None:
+        if self._credential is not None and not self._credential.needs_refresh:
+            return self._credential
+
+        async with self._credential_lock:
+            if self._credential is None:
+                if self._credential_file.exists():
+                    self._credential = load_credential(self._credential_file)
+                    if self._credential is not None:
+                        self._set_cookies()
+                return self._credential
+
+            if not self._credential.needs_refresh:
+                return self._credential
+
+            if not self._credential.can_refresh:
+                logger.warning("[哔哩哔哩] 凭证过期，缺少 access/refresh_token")
+                return self._credential
+            try:
+                refreshed = await refresh_credential(self._credential)
+            except BiliAuthError as exc:
+                logger.warning(f"[哔哩哔哩] 凭证续期失败: {exc}")
+                return self._credential
+            self._credential = refreshed
+            save_credential(self._credential_file, refreshed)
+            self._set_cookies()
+            logger.info("[哔哩哔哩] 凭证续期成功")
+            return self._credential
+
+    async def login_with_qrcode(self) -> bytes:
+        self._qr_login = QrLogin()
+        return await self._qr_login.generate_qrcode()
+
+    async def complete_qr_login(self) -> PollResult:
+        if getattr(self, "_qr_login", None) is None:
+            raise ParseException("请先生成哔哩哔哩登录二维码")
+        result = await poll_login(self._qr_login)
+        if result.credential is not None:
+            self._credential = result.credential
+            save_credential(self._credential_file, result.credential)
+            self._set_cookies()
+        return result
 
     async def _fetch_hot_danmaku(self, cid: int) -> list[str]:
         """获取高频弹幕；失败只影响卡片附加信息，不阻断解析。"""

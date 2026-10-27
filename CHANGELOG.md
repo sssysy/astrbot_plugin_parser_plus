@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 新增哔哩哔哩 TV 端扫码登录与自动续期：管理员发送 `blogin` 生成二维码；成功凭证保存到插件数据目录，过期时自动续期。
 - 新增 FFmpeg 自动发现：优先系统 FFmpeg，缺失时使用 `imageio-ffmpeg` 内置 `ffmpeg`；`ffprobe` 缺失时安全降级，不阻断解析。
 - 新增哔哩哔哩解析器：支持 BV/AV、分 P、b23.tv 短链、动态、Opus、专栏、直播、番剧和收藏夹；卡片展示播放、点赞、评论、收藏、分享、投币、弹幕及 UP 主数据。
 - 重构解析器注册架构：`core/parsers/<name>/` 包内自带 `config.json`，由注册中心启动扫描并原子注册。

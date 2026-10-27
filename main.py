@@ -9,6 +9,7 @@ from astrbot.api.star import Context, Star
 from astrbot.api.web import error_response, json_response, request
 from astrbot.core import AstrBotConfig
 from astrbot.core.message.components import At, Json, Plain, Reply
+from astrbot.core.message.components import Image
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
@@ -375,6 +376,38 @@ class ParserPlugin(Star):
                 f"Playwright Chromium 安装失败（退出码 {result.returncode}），"
                 "请查看 AstrBot 日志。"
             )
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("blogin")
+    async def bilibili_login(self, event: AstrMessageEvent):
+        """管理员扫码登录哔哩哔哩，并自动保存可续期凭证。"""
+        parser = self.parser_map.get("bilibili.com/bangumi/play")
+        if parser is None:
+            yield event.plain_result("哔哩哔哩解析器未启用。")
+            return
+        try:
+            qrcode = await parser.login_with_qrcode()
+        except Exception:
+            logger.exception("[哔哩哔哩] 生成登录二维码失败")
+            yield event.plain_result("生成哔哩哔哩登录二维码失败。")
+            return
+
+        await event.send(event.chain_result([Image.fromBytes(qrcode)]))
+        yield event.plain_result("请使用哔哩哔哩 App 扫码登录。")
+
+        try:
+            result = await parser.complete_qr_login()
+        except Exception as exc:
+            logger.warning(
+                "[哔哩哔哩] 扫码登录失败 | "
+                f"error_type={type(exc).__name__} | "
+                f"error={self.sender.safe_exception_text(exc)}"
+            )
+            yield event.plain_result("哔哩哔哩扫码登录失败。")
+            return
+
+        for message in result.messages:
+            yield event.plain_result(message)
 
     def _match_parser(self, url: str):
         for keyword, pattern in self.key_pattern_list:

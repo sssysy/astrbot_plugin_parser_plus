@@ -455,12 +455,18 @@ class BilibiliParser(BaseParser):
                 continue
             backup = stream.get("backupUrl") or stream.get("backup_url") or []
             urls = [base, *[u for u in backup if isinstance(u, str)]]
-            urls = [
+            direct_urls = [
                 u
                 for u in urls
                 if is_allowed_media_host(u) and not self._is_pcdn_url(u)
             ]
-            if not urls:
+            if direct_urls:
+                urls = direct_urls
+            elif any(is_allowed_media_host(u) for u in urls):
+                # B 站偶发把主地址和备份地址全部下发到 PCDN。此时直连地址
+                # 不存在，保留原始候选作为兜底，避免整条视频被误判为无流。
+                urls = [u for u in urls if is_allowed_media_host(u)]
+            else:
                 continue
             quality_id = self._stream_int(stream.get("id"))
             width = self._stream_int(stream.get("width"))

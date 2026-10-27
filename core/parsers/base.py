@@ -298,6 +298,7 @@ class BaseParser:
             url=url,
             extra=extra or {},
             metrics=list(metrics or ()),
+            cover=cover_task,
             video=VideoMeta(
                 cover=cover_task,
                 duration=duration,

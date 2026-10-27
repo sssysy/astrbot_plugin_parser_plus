@@ -157,8 +157,9 @@ class DouyinParser(BaseParser):
         await self.send_desc_common(
             room.title,
             author,
-            contents,
+            [],
             text=status,
+            cover=cover_url,
             url=f"https://live.douyin.com/{rid}",
             metrics=metrics,
         )

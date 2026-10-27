@@ -515,7 +515,7 @@
             </div>
           {% else %}
             <div class="creator-main">
-              <div class="creator-name">{{ card.title or '视频作品' }}</div>
+              <div class="creator-name">{{ card.title or card.platform.display_name }}</div>
               {% if card.formatted_datetime %}
                 <div class="creator-meta"><span>{{ card.formatted_datetime }}</span></div>
               {% endif %}
@@ -574,7 +574,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
               </svg>
-              <span>{{ card.video.duration if card.video and card.video.duration else '视频' }}</span>
+              <span>{{ card.video.duration if card.video and card.video.duration else card.video.quality }}</span>
             </div>
             <div class="play-orb" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="currentColor">

@@ -877,8 +877,9 @@ class BilibiliParser(BaseParser):
         await self.send_desc_common(
             room.title,
             author,
-            contents,
+            [],
             text=text,
+            cover=room.cover or room.user_cover or room.keyframe or None,
             timestamp=parse_dynamic_time(room.live_time),
             url=f"https://live.bilibili.com/{room.room_id}",
             metrics=metrics,
@@ -921,8 +922,9 @@ class BilibiliParser(BaseParser):
         await self.send_desc_common(
             f"收藏夹 - {fav.info.title}",
             author,
-            contents,
+            [],
             text=fav.info.intro or None,
+            cover=fav.medias[0].cover if fav.medias else None,
             timestamp=fav.info.ctime,
             url=(
                 f"https://space.bilibili.com/{fav.info.upper.mid}"
@@ -955,8 +957,9 @@ class BilibiliParser(BaseParser):
         await self.send_desc_common(
             bangumi.title,
             author,
-            contents,
+            [],
             text=bangumi.evaluate or None,
+            cover=clean_cover(bangumi.cover),
             url=bangumi.share_url,
             metrics=bangumi.stat.metrics,
         )
@@ -1005,8 +1008,17 @@ class BilibiliParser(BaseParser):
         await self.send_desc_common(
             str(data.get("title") or "哔哩哔哩专栏"),
             author,
-            contents,
+            [],
             text=str(data.get("summary") or data.get("content") or "") or None,
+            cover=next(
+                (
+                    image
+                    for image in data.get("image_urls") or []
+                    if isinstance(image, str)
+                    and is_allowed_media_host(image)
+                ),
+                None,
+            ),
             timestamp=int(data.get("publish_time") or 0) or None,
             url=f"https://www.bilibili.com/read/cv{read_id}",
             metrics=metrics,

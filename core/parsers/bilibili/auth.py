@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import time
+from hashlib import md5
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from urllib.parse import urlencode
-from hashlib import md5
 
 import qrcode
 
@@ -19,6 +20,14 @@ from astrbot.api import logger
 TV_AUTH_CODE_URL = "https://passport.bilibili.com/x/passport-tv-login/qrcode/auth_code"
 TV_POLL_URL = "https://passport.bilibili.com/x/passport-tv-login/qrcode/poll"
 REFRESH_TOKEN_URL = "https://passport.bilibili.com/api/v2/oauth2/refresh_token"
+QR_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/132.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.bilibili.com/",
+}
 
 # lite 使用的 android_hd 客户端签名参数。
 APPKEY = "dfca71928277209b"
@@ -128,11 +137,17 @@ class QrLogin:
         import aiohttp
 
         params = _signed({"local_id": "0", "ts": int(time.time())})
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(headers=QR_REQUEST_HEADERS) as session:
             async with session.post(
                 TV_AUTH_CODE_URL, params=params
             ) as response:
-                payload = await response.json(content_type=None)
+                body = await response.read()
+        if response.status != 200:
+            raise BiliAuthError(f"B 站登录接口返回 HTTP {response.status}")
+        try:
+            payload = json.loads(body)
+        except (TypeError, ValueError, UnicodeError) as exc:
+            raise BiliAuthError("B 站登录接口返回内容异常") from exc
         if not isinstance(payload, dict) or payload.get("code") != 0:
             raise BiliAuthError("获取 B 站登录二维码失败")
         data = payload.get("data") or {}
@@ -161,9 +176,15 @@ class QrLogin:
                 "ts": int(time.time()),
             }
         )
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(headers=QR_REQUEST_HEADERS) as session:
             async with session.post(TV_POLL_URL, params=params) as response:
-                payload = await response.json(content_type=None)
+                body = await response.read()
+        if response.status != 200:
+            raise BiliAuthError(f"B 站登录状态接口返回 HTTP {response.status}")
+        try:
+            payload = json.loads(body)
+        except (TypeError, ValueError, UnicodeError) as exc:
+            raise BiliAuthError("B 站登录状态接口返回内容异常") from exc
         code = payload.get("code") if isinstance(payload, dict) else None
         if code == 0:
             self.credential = BiliCredential.from_poll_payload(
@@ -193,9 +214,15 @@ async def refresh_credential(
             "ts": int(time.time()),
         }
     )
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(headers=QR_REQUEST_HEADERS) as session:
         async with session.post(REFRESH_TOKEN_URL, params=params) as response:
-            payload = await response.json(content_type=None)
+            body = await response.read()
+    if response.status != 200:
+        raise BiliAuthError(f"B 站凭证续期接口返回 HTTP {response.status}")
+    try:
+        payload = json.loads(body)
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise BiliAuthError("B 站凭证续期接口返回内容异常") from exc
     if not isinstance(payload, dict) or payload.get("code") != 0:
         message = "B 站凭证续期失败"
         if isinstance(payload, dict):
@@ -207,8 +234,6 @@ async def refresh_credential(
 def load_credential(path: Path) -> BiliCredential | None:
     try:
         data = path.read_text(encoding="utf-8")
-        import json
-
         return BiliCredential.from_dict(json.loads(data))
     except (OSError, ValueError, TypeError) as exc:
         logger.warning(f"[哔哩哔哩] 读取凭证失败 | file={path.name}")
@@ -217,8 +242,6 @@ def load_credential(path: Path) -> BiliCredential | None:
 
 
 def save_credential(path: Path, credential: BiliCredential) -> None:
-    import json
-
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_text(

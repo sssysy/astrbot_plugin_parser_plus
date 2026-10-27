@@ -1,347 +1,42 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ card.platform.display_name }} · 卡片</title>
+  <style data-style="icon">{{ styles["icon.css"] | safe }}</style>
+  <style data-style="tailwind">{{ styles["tailwind.css"] | safe }}</style>
+  {% from "macros.html" import resolve_cover_src, render_ambient, render_content %}
   <style>
-    :root {
-      --card-bg: #f1f3f5;
-      --panel-bg: #e7e9ec;
-      --text: #17191c;
-      --muted: #6e737a;
-      --line: rgba(23, 25, 28, .09);
-      --accent: #161a1f;
+    /* 本插件以 1000px 画布截屏，lite 版式为 620px，这里等比放大后再截图。 */
+    html, body { margin: 0; padding: 0; background: #f8fafc; }
+    body { width: 1000px; }
+    main {
+      zoom: 1.6129032258064516;
+      transform-origin: 0 0;
     }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: #fff; }
-    body {
-      width: 1000px;
-      color: var(--text);
-      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
-    .card {
-      width: 1000px;
-      min-height: 220px;
-      padding: 34px 38px 38px;
-      border-radius: 0;
-      background: linear-gradient(145deg, #f5f6f7 0%, var(--card-bg) 56%, #e8ebee 100%);
-      overflow: hidden;
-    }
-    .title {
-      margin: 0;
-      font-size: 34px;
-      line-height: 1.42;
-      font-weight: 800;
-      letter-spacing: .01em;
-      word-break: break-word;
-    }
-    .video-header { margin-bottom: 18px; }
-    .video-meta-row {
-      margin-top: 14px;
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 24px;
-    }
-    .video-facts { display: flex; flex-direction: column; gap: 7px; }
-    .duration-line { display: flex; align-items: baseline; gap: 9px; font-size: 23px; font-weight: 750; }
-    .fact-label { color: #34383d; font-size: 20px; font-weight: 650; }
-    .quality-line { color: #474c53; font-size: 17px; font-weight: 650; }
-    .resolution-line { color: var(--muted); font-size: 15px; letter-spacing: .02em; }
-    .platform-logo-wrap {
-      min-width: 86px;
-      min-height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 9px;
-      color: #2d3136;
-      font-size: 20px;
-      font-weight: 800;
-    }
-    .platform-logo { display: block; max-width: 112px; max-height: 48px; object-fit: contain; }
-    .video-cover {
-      width: 100%;
-      max-height: 650px;
-      display: block;
-      object-fit: cover;
-      border-radius: 22px;
-      background: #d7dadd;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.6);
-    }
-    .body-copy { margin-top: 24px; }
-    .body-text {
-      margin: 0 0 16px;
-      font-size: 20px;
-      line-height: 1.76;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .body-text:last-child { margin-bottom: 0; }
-
-    /* 图片组：连续图片聚合成一块，并出血到卡片边缘。 */
-    .media-run {
-      margin: 22px -38px;
-      overflow: hidden;
-      background: var(--panel-bg);
-    }
-    .media-run img { display: block; width: 100%; }
-    .media-single img { height: auto; object-fit: contain; }
-    .media-grid {
-      display: grid;
-      gap: 2px;
-    }
-    .media-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .media-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .media-cell {
-      position: relative;
-      overflow: hidden;
-      aspect-ratio: 1 / 1;
-    }
-    .media-cell img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    .media-more {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #fff;
-      font-size: 34px;
-      font-weight: 850;
-      letter-spacing: .01em;
-      background: rgba(0, 0, 0, .58);
-    }
-
-    /* 独立图文：始终独占一块，不进入多图网格。 */
-    .graphic-run {
-      margin: 22px -38px;
-      overflow: hidden;
-      background: var(--panel-bg);
-    }
-    .graphic-run > img {
-      display: block;
-      width: 100%;
+    /* 图片必须按原始比例占位，禁止参与百分比高度解析，避免超长画布。 */
+    main img { height: auto; }
+    main .single-image img { height: auto; width: 100%; }
+    main .aspect-square img { height: 100%; }
+    /* 光晕层是定位副本，不能撑开容器。 */
+    main .single-image { height: auto; }
+    main .single-image > img { display: block; }
+    /* 光晕副本只做装饰：跟随前景宽度，高度由图片比例决定。 */
+    main .media-glow {
+      inset: 6% 6% auto 6%;
+      width: 88%;
       height: auto;
-      object-fit: contain;
+      transform: translateY(14px) scale(1.02);
     }
-    .graphic-caption {
-      margin: 0;
-      padding: 11px 38px 0;
-      color: var(--muted);
-      font-size: 15px;
-      line-height: 1.5;
-      text-align: center;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .extra-info { margin-top: 18px; color: var(--muted); font-size: 15px; line-height: 1.6; }
-    .author-card {
-      margin-top: 28px;
-      padding: 18px 20px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      border: 1px solid rgba(255,255,255,.58);
-      border-radius: 22px;
-      background: rgba(255,255,255,.24);
-    }
-    .author-avatar, .author-avatar-placeholder {
-      width: 58px;
-      height: 58px;
-      flex: 0 0 58px;
-      border-radius: 50%;
-      object-fit: cover;
-      background: #cfd3d7;
-    }
-    .author-avatar-placeholder {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #fff;
-      font-size: 25px;
-      font-weight: 800;
-      background: #626970;
-    }
-    .author-main { min-width: 0; }
-    .author-name { font-size: 21px; font-weight: 800; line-height: 1.3; }
-    .author-id { margin-top: 5px; color: var(--muted); font-size: 15px; }
-    .author-metrics {
-      margin-left: auto;
-      display: flex;
-      align-items: flex-start;
-      justify-content: flex-end;
-      gap: 30px;
-      padding-left: 18px;
-    }
-    .author-metric { min-width: 62px; text-align: left; }
-    .author-metric-head { display: flex; align-items: center; gap: 6px; color: #4e535a; font-size: 14px; }
-    .author-metric-icon { width: 16px; height: 16px; object-fit: contain; }
-    .author-metric-value { margin-top: 6px; font-size: 18px; font-weight: 800; }
-    .metrics {
-      margin-top: 26px;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 22px 30px;
-    }
-    .metric { min-width: 0; }
-    .metric-head { display: flex; align-items: center; gap: 7px; color: #555a61; font-size: 16px; font-weight: 650; }
-    .metric-icon { width: 22px; height: 22px; object-fit: contain; }
-    .metric-value { margin-top: 7px; font-size: 29px; line-height: 1.15; font-weight: 850; letter-spacing: -.01em; }
-    .repost {
-      margin-top: 26px;
-      padding: 18px 20px;
-      border-radius: 20px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.28);
-    }
-    .repost-label { color: var(--muted); font-size: 14px; font-weight: 700; }
-    .repost-title { margin: 8px 0 10px; font-size: 21px; line-height: 1.4; font-weight: 800; }
-    .repost-text { margin: 0; color: #3e4349; font-size: 16px; line-height: 1.65; }
-    /* 转发区自带内边距，取消正文图片的出血，避免溢出圆角容器。 */
-    .repost-body .media-run,
-    .repost-body .graphic-run {
-      margin: 14px 0 0;
-      border-radius: 14px;
-    }
-    .repost-body .graphic-caption { padding-left: 0; padding-right: 0; }
-    .repost-body .body-text { font-size: 16px; line-height: 1.65; color: #3e4349; }
-    .repost-body .media-more { font-size: 24px; }
-    {% block styles %}{% endblock %}
   </style>
 </head>
-<body>
-  <main class="card">
-    {# 最多展示的图片数，超出部分折叠成 +N 角标。 #}
-    {% set MAX_VISIBLE_IMAGES = 9 %}
-
-    {% macro media_run(items) -%}
-      {% set count = items | length %}
-      {% if count == 1 %}
-        <div class="media-run media-single">
-          <img src="{{ items[0].src }}" alt="{{ items[0].alt or '' }}">
-        </div>
-      {% else %}
-        {% set visible = items[:MAX_VISIBLE_IMAGES] %}
-        {% set hidden = count - MAX_VISIBLE_IMAGES if count > MAX_VISIBLE_IMAGES else 0 %}
-        {% set cols = 3 if count == 3 or count > 4 else 2 %}
-        <div class="media-run media-grid media-cols-{{ cols }}">
-          {% for item in visible %}
-            <div class="media-cell">
-              <img src="{{ item.src }}" alt="{{ item.alt or '' }}">
-              {% if hidden and loop.last %}<div class="media-more">+{{ hidden }}</div>{% endif %}
-            </div>
-          {% endfor %}
-        </div>
-      {% endif %}
-    {%- endmacro %}
-
-    {% macro graphic_run(block) -%}
-      <div class="graphic-run">
-        <img src="{{ block.src }}" alt="{{ block.alt or '' }}">
-      </div>
-      {% if block.alt %}<p class="graphic-caption">{{ block.alt }}</p>{% endif %}
-    {%- endmacro %}
-
-    {% macro text_run(block) -%}
-      <p class="body-text">{{ block.text }}</p>
-    {%- endmacro %}
-
-    {% macro render_blocks(blocks) -%}
-      {# 连续图片累积成组，遇到任何非图片内容就切段输出，保持原始顺序。 #}
-      {% set ns = namespace(pending=[], out=[]) %}
-      {% for block in blocks %}
-        {% if block.type == 'image' and block.src %}
-          {% set ns.pending = ns.pending + [block] %}
-        {% else %}
-          {% if ns.pending %}
-            {% set ns.out = ns.out + [media_run(ns.pending)] %}
-            {% set ns.pending = [] %}
-          {% endif %}
-          {% if block.type == 'graphics' and block.src %}
-            {% set ns.out = ns.out + [graphic_run(block)] %}
-          {% elif block.text %}
-            {% set ns.out = ns.out + [text_run(block)] %}
-          {% endif %}
-        {% endif %}
-      {% endfor %}
-      {% if ns.pending %}
-        {% set ns.out = ns.out + [media_run(ns.pending)] %}
-      {% endif %}
-      {{ ns.out | join('') | safe }}
-    {%- endmacro %}
-
-    {% block header %}
-      {% if card.title %}<h1 class="title">{{ card.title }}</h1>{% endif %}
-    {% endblock %}
-
-    {% block media %}{% endblock %}
-
-    <section class="body-copy">
-      {% if card.text %}<p class="body-text">{{ card.text }}</p>{% endif %}
-      {# 解析器给的封面是卡片主视觉：正文没有图片时用它兜底，避免只剩文字。 #}
-      {% if card.cover and not card.blocks | selectattr('type', 'equalto', 'image') | list %}
-        <div class="media-run media-single">
-          <img src="{{ card.cover }}" alt="{{ card.title or card.platform.display_name }}">
-        </div>
-      {% endif %}
-      {{ render_blocks(card.blocks) }}
-      {% if card.extra_info %}<div class="extra-info">{{ card.extra_info }}</div>{% endif %}
-    </section>
-
-    {% if card.author %}
-      <section class="author-card">
-        {% if card.author.avatar %}
-          <img class="author-avatar" src="{{ card.author.avatar }}" alt="{{ card.author.name }}">
-        {% else %}
-          <div class="author-avatar-placeholder">{{ card.author.name[:1] }}</div>
-        {% endif %}
-        <div class="author-main">
-          <div class="author-name">{{ card.author.name }}</div>
-          {% if card.author.uid %}<div class="author-id">ID: {{ card.author.uid }}</div>{% endif %}
-        </div>
-        {% if card.author.metrics %}
-          <div class="author-metrics">
-            {% for metric in card.author.metrics %}
-              <div class="author-metric">
-                <div class="author-metric-head">
-                  {% if metric.icon %}<img class="author-metric-icon" src="{{ metric.icon }}" alt="">{% endif %}
-                  {% if metric.label %}<span>{{ metric.label }}</span>{% endif %}
-                </div>
-                <div class="author-metric-value">{{ metric.value }}</div>
-              </div>
-            {% endfor %}
-          </div>
-        {% endif %}
-      </section>
-    {% endif %}
-
-    {% if card.metrics %}
-      <section class="metrics">
-        {% for metric in card.metrics %}
-          <div class="metric">
-            <div class="metric-head">
-              {% if metric.icon %}<img class="metric-icon" src="{{ metric.icon }}" alt="">{% endif %}
-              {% if metric.label %}<span>{{ metric.label }}</span>{% endif %}
-            </div>
-            <div class="metric-value">{{ metric.value }}</div>
-          </div>
-        {% endfor %}
-      </section>
-    {% endif %}
-
-    {% if card.repost %}
-      <section class="repost">
-        <div class="repost-label">转发内容 · {{ card.repost.platform.display_name }}</div>
-        {% if card.repost.title %}<div class="repost-title">{{ card.repost.title }}</div>{% endif %}
-        {% if card.repost.text %}<p class="repost-text">{{ card.repost.text }}</p>{% endif %}
-        <div class="repost-body">{{ render_blocks(card.repost.blocks) }}</div>
-      </section>
-    {% endif %}
+<body class="m-0 w-[1000px] break-all font-sans antialiased">
+  {% set cover_src = resolve_cover_src(card) %}
+  {% set logo_src = card.platform.logo %}
+  <main class="relative isolate w-[620px] overflow-hidden bg-slate-50 rounded-2xl dark:bg-slate-950">
+    {{ render_ambient(cover_src, logo_src) }}
+    <div class="relative z-[1]">{{ render_content(card, meta) }}</div>
   </main>
 </body>
 </html>

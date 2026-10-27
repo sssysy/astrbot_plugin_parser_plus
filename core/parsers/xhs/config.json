@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "name": "xhs",
+  "display_name": "小红书",
+  "default_enabled": true,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填；部分需要登录或频繁访问的笔记可能需要填写网页 Cookie",
+      "secret": true,
+      "default": ""
+    },
+    "video_quality": {
+      "type": "select",
+      "label": "视频画质偏好",
+      "hint": "auto 自动选择最高可用画质；也可指定 4k、2k、1080p、720p、540p",
+      "options": [
+        "auto",
+        "4k",
+        "2k",
+        "1080p",
+        "720p",
+        "540p"
+      ],
+      "default": "auto"
+    }
+  }
+}

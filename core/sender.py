@@ -137,6 +137,17 @@ class MessageSender:
                 if content.text:
                     segs.append(Plain(content.text))
                 continue
+            if (
+                isinstance(content, (VideoContent, LivePhotoContent))
+                and self.cfg.max_duration
+                and content.duration > self.cfg.max_duration
+            ):
+                self._append_content_failure(
+                    content,
+                    DurationLimitException(),
+                    segs,
+                )
+                continue
 
             try:
                 path = await content.get_path()

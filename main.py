@@ -143,7 +143,7 @@ class ParserPlugin(Star):
                 name,
                 enabled=enabled,
                 updates=values,
-                preserve_masked=True,
+                preserve_masked=False,
             )
         except KeyError:
             return error_response("parser not found", status_code=404)

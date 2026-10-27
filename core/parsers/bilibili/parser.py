@@ -337,10 +337,6 @@ class BilibiliParser(BaseParser):
             timestamp = selected.ctime or info.pubdate or info.ctime
         if not cid:
             raise ParseException("视频分集信息缺失")
-        if self.cfg.max_duration and pages_duration > self.cfg.max_duration:
-            raise ParseException(
-                f"视频时长超过限制（{self.cfg.source_max_minute} 分钟）"
-            )
 
         await self._ensure_credential()
         stream = await self._fetch_stream(

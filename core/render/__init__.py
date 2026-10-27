@@ -8,6 +8,7 @@ import mimetypes
 import re
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -126,6 +127,13 @@ class Renderer:
 
     async def _render_html(self, description: Description) -> str | None:
         context = await self._description_context(description)
+        meta = {
+            "bot_name": self._bot_name(),
+            "rendering_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "width": self.CARD_WIDTH,
+        }
+        # 样式内联：远程 T2I 只接收 HTML，解析不了相对路径；本地也不必放开 file://。
+        styles = self._inline_styles()
         platform = self._safe_template_name(description.platform.name)
         candidates = [f"{platform}.html"]
         # 只有视频描述才走 video.html，否则图文帖会拿到视频版式（大封面 + 播放键）。
@@ -136,7 +144,7 @@ class Renderer:
         for template_name in candidates:
             try:
                 template = self.env.get_template(template_name)
-                return template.render(card=context)
+                return template.render(card=context, meta=meta, styles=styles)
             except TemplateNotFound:
                 continue
             except Exception as exc:
@@ -149,17 +157,34 @@ class Renderer:
         logger.error("[渲染] 未找到可用模板")
         return None
 
+    def _inline_styles(self) -> dict[str, str]:
+        """读取本地样式表，交给模板内联。"""
+        styles: dict[str, str] = {}
+        for name in ("icon.css", "tailwind.css"):
+            path = self.TEMPLATE_DIR / name
+            try:
+                styles[name] = path.read_text(encoding="utf-8")
+            except OSError:
+                logger.warning(f"[渲染] 读取样式失败: {name}")
+                styles[name] = ""
+        return styles
+
     async def _description_context(self, description: Description) -> dict[str, Any]:
+        # cover 可能是 awaitable，先落成 Path，避免被多处重复 await。
+        cover_path = description.cover
+        if cover_path is not None and not isinstance(cover_path, Path):
+            cover_path = await cover_path
         (
             logo,
-            blocks,
+            content,
             author,
             metrics,
             video,
             repost,
+            cover,
         ) = await asyncio.gather(
             self._platform_logo(description.platform.name),
-            self._content_blocks(description.contents),
+            self._content_blocks(description.contents, cover=cover_path),
             self._author_context(description.author),
             self._metrics_context(description.metrics),
             self._video_context(description),
@@ -168,6 +193,7 @@ class Renderer:
                 if description.repost is not None
                 else asyncio.sleep(0, result=None)
             ),
+            self._cover_context(cover_path),
         )
         return {
             "platform": {
@@ -181,10 +207,10 @@ class Renderer:
             "extra_info": description.extra_info,
             "timestamp": description.timestamp,
             "formatted_datetime": description.formatted_datetime("%Y-%m-%d %H:%M"),
-            "blocks": blocks,
+            "content": content,
             "author": author,
             "metrics": metrics,
-            "cover": await self._cover_context(description.cover),
+            "cover": cover,
             "video": video,
             "repost": repost,
         }
@@ -197,6 +223,14 @@ class Renderer:
         if cover_path is not None and not isinstance(cover_path, Path):
             cover_path = await cover_path
         return await self._path_to_data_uri(cover_path, 2000, 2000)
+
+    def _bot_name(self) -> str:
+        """卡片页脚展示的机器人名，取不到时回退插件名。"""
+        for attr in ("bot_name", "nickname"):
+            value = getattr(self.cfg, attr, None)
+            if isinstance(value, str) and value:
+                return value
+        return "AstrBot Parser"
 
     async def _author_context(self, author: Author | None) -> dict[str, Any] | None:
         if author is None:
@@ -235,12 +269,38 @@ class Renderer:
                 "icon": icon,
                 "label": metric.label,
                 "value": metric.value,
+                # 模板按 key 选内置矢量图标，复刻 lite 的彩色统计样式。
+                "key": self._metric_icon_key(metric.label),
             }
             for metric, icon in zip(items, icons, strict=True)
         ]
 
+    @staticmethod
+    def _metric_icon_key(label: str | None) -> str:
+        """把本插件的指标名映射到内置图标类名。"""
+        return {
+            "浏览": "eye",
+            "观看": "eye",
+            "播放": "play",
+            "点赞": "heart",
+            "获赞": "heart",
+            "评论": "comment-dots",
+            "收藏": "star",
+            "追番": "star",
+            "分享": "share-nodes",
+            "投币": "coin",
+            "电池": "battery",
+            "弹幕": "danmaku",
+            "粉丝": "follow",
+            "关注": "follow",
+            "视频": "play",
+        }.get(label or "", "hot")
+
     async def _content_blocks(
-        self, contents: list[MediaContent]
+        self,
+        contents: list[MediaContent],
+        *,
+        cover: Path | Awaitable[Path] | None = None,
     ) -> list[dict[str, Any]]:
         async def build_block(content: MediaContent) -> dict[str, Any] | None:
             if isinstance(content, TextContent):
@@ -248,7 +308,7 @@ class Renderer:
             if isinstance(content, GraphicsContent):
                 path = await content.get_path()
                 return {
-                    "type": "graphics",
+                    "type": "graphic",
                     "src": await self._path_to_data_uri(path, self.CARD_WIDTH, 2000),
                     "text": content.text,
                     "alt": content.alt,
@@ -258,22 +318,38 @@ class Renderer:
                 return {
                     "type": "image",
                     "src": await self._path_to_data_uri(path, self.CARD_WIDTH, 2000),
-                    "alt": "",
+                    "alt": None,
                 }
             if isinstance(content, VideoContent):
                 cover_path = await content.get_cover_path()
                 if cover_path is not None:
                     return {
-                        "type": "image",
+                        "type": "cover",
                         "src": await self._path_to_data_uri(
                             cover_path, self.CARD_WIDTH, 1000
                         ),
-                        "alt": "",
+                        "alt": None,
                     }
             return None
 
         blocks = await asyncio.gather(*(build_block(content) for content in contents))
-        return [block for block in blocks if block is not None]
+        result = [block for block in blocks if block is not None]
+        if result and any(block["type"] in {"image", "cover"} for block in result):
+            return result
+        # 正文没有图片时，解析器给的封面就是唯一视觉内容，必须进入正文。
+        if cover is not None:
+            cover_path = cover if isinstance(cover, Path) else await cover
+            result.insert(
+                0,
+                {
+                    "type": "cover",
+                    "src": await self._path_to_data_uri(
+                        cover_path, self.CARD_WIDTH, 2000
+                    ),
+                    "alt": None,
+                },
+            )
+        return result
 
     async def _icon_to_data_uri(self, icon: IconAsset | None) -> str:
         if icon is None:

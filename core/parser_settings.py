@@ -25,7 +25,6 @@ class ParserSettingsService:
         for package in self.registry.snapshot.packages:
             definition = package.definition
             settings = package.settings
-            secret_keys = {field.key for field in definition.fields if field.secret}
             result.append(
                 {
                     "name": definition.name,
@@ -43,11 +42,7 @@ class ParserSettingsService:
                         }
                         for field in definition.fields
                     ],
-                    "values": {
-                        key: value
-                        for key, value in settings.values.items()
-                        if key not in secret_keys
-                    },
+                    "values": dict(settings.values),
                 }
             )
         return result

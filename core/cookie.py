@@ -73,18 +73,19 @@ class CookieJar:
 
         self.raw_cookies = parser_cfg.cookies
         self.cookies_str = ""
+        configured_cookies = ""
 
         if self.raw_cookies is not None:
-            # 配置清空代表用户主动撤销持久化凭证，避免旧文件继续生效。
-            if not self.raw_cookies.strip() and self.cookie_file.exists():
+            configured_cookies = self.clean_cookies_str(self.raw_cookies)
+            # 空配置表示用户主动清空，不允许旧文件继续提供 Cookie。
+            if not configured_cookies and self.cookie_file.exists():
                 self.cookie_file.unlink(missing_ok=True)
-            self.cookies_str = self.clean_cookies_str(self.raw_cookies)
-            if self.cookies_str:
-                self._load_from_cookies_str(self.cookies_str)
-                self.save_to_file()
 
         if self.cookie_file.exists():
             self.load_from_file()
+        if configured_cookies:
+            self._load_from_cookies_str(configured_cookies)
+            self.save_to_file()
 
     # ---------------- public ----------------
 
@@ -242,11 +243,15 @@ class CookieJar:
             name, value = parts
             if not name.strip():
                 continue
+            name = name.strip()
+            self.cookies = [
+                cookie for cookie in self.cookies if cookie.name != name
+            ]
             self.cookies.append(
                 Cookie(
                     domain=f".{self.domain}",
                     path="/",
-                    name=name.strip(),
+                    name=name,
                     value=value.strip(),
                     secure=True,
                     expires=0,
@@ -256,6 +261,7 @@ class CookieJar:
         self._sync_cookies_str()
 
     def _load_from_netscape_cookies_str(self, cookies_str: str) -> None:
+        loaded: list[Cookie] = []
         for line in cookies_str.splitlines():
             parsed = self._parse_netscape_cookie_line(line)
             if parsed is None:
@@ -270,7 +276,7 @@ class CookieJar:
             else:
                 domain = domain.lstrip(".")
 
-            self.cookies.append(
+            loaded.append(
                 Cookie(
                     domain=domain,
                     path=path,
@@ -281,6 +287,14 @@ class CookieJar:
                 )
             )
 
+        configured_names = {cookie.name for cookie in loaded}
+        if configured_names:
+            self.cookies = [
+                cookie
+                for cookie in self.cookies
+                if cookie.name not in configured_names
+            ]
+        self.cookies.extend(loaded)
         self._sync_cookies_str()
 
     def save_to_file(self) -> None:

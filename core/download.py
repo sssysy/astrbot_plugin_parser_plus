@@ -25,8 +25,6 @@ from .utils import LimitedSizeDict, generate_file_name, merge_av, safe_unlink
 
 P = ParamSpec("P")
 T = TypeVar("T")
-
-
 def auto_task(func: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, Task[T]]:
     """装饰器：自动将异步函数调用转换为 Task, 完整保留类型提示"""
 
@@ -96,7 +94,7 @@ class Downloader:
         *,
         file_name: str | None = None,
         headers: dict[str, str] | None = None,
-        proxy: str | None | object = ...,
+        proxy: str | None = None,
         fallback_urls: Sequence[str] | None = None,
         retry_http_statuses: Collection[int] = (),
     ) -> Path:
@@ -131,7 +129,7 @@ class Downloader:
         *,
         file_path: Path,
         headers: dict[str, str],
-        proxy: str | None | object,
+        proxy: str | None,
         retry_http_statuses: Collection[int],
     ) -> Path:
         retries = self.cfg.download_retry_times
@@ -171,7 +169,7 @@ class Downloader:
         *,
         file_path: Path,
         headers: dict[str, str],
-        proxy: str | None | object,
+        proxy: str | None,
         retry_http_statuses: Collection[int],
     ) -> None:
         async with self.client.get(
@@ -283,7 +281,7 @@ class Downloader:
         *,
         file_name: str | None = None,
         headers: dict[str, str] | None = None,
-        proxy: str | None | object = ...,
+        proxy: str | None = None,
         fallback_urls: Sequence[str] | None = None,
         retry_http_statuses: Collection[int] = (),
     ) -> Path:
@@ -305,7 +303,7 @@ class Downloader:
         *,
         img_name: str | None = None,
         headers: dict[str, str] | None = None,
-        proxy: str | None | object = ...,
+        proxy: str | None = None,
         fallback_urls: Sequence[str] | None = None,
         retry_http_statuses: Collection[int] = (),
     ) -> Path:
@@ -325,7 +323,7 @@ class Downloader:
         urls: list[str],
         *,
         headers: dict[str, str] | None = None,
-        proxy: str | None | object = ...,
+        proxy: str | None = None,
     ) -> list[Path]:
         paths_or_errs = await gather(
             *[self.download_img(url, headers=headers, proxy=proxy) for url in urls],

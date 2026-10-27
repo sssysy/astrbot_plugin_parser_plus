@@ -588,15 +588,15 @@
       <section class="content">
         {% if card.title %}<h1 class="title">{{ card.title }}</h1>{% endif %}
 
-        {% if card.text or card.blocks or card.extra_info %}
+        {% if card.text or card.content or card.extra_info %}
           <div class="body-copy">
             {% if card.text %}<p class="body-text">{{ card.text }}</p>{% endif %}
-            {% for block in card.blocks %}
+            {% for block in card.content %}
               {% if block.type == 'text' and block.text %}
                 <p class="body-text" style="margin-top: 18px;">{{ block.text }}</p>
               {% elif block.type == 'image' and block.src %}
                 <img class="block-image" src="{{ block.src }}" alt="{{ block.alt or '' }}">
-              {% elif block.type == 'graphics' and block.src %}
+              {% elif block.type == 'graphic' and block.src %}
                 {% if block.text %}<p class="graphics-text">{{ block.text }}</p>{% endif %}
                 <img class="block-image" src="{{ block.src }}" alt="{{ block.alt or '' }}">
                 {% if block.alt %}<div class="graphics-alt">{{ block.alt }}</div>{% endif %}

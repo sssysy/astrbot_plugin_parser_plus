@@ -359,6 +359,7 @@ class Downloader:
         headers: dict[str, str] | None = None,
         proxy: str | None = None,
         format: str | None = None,
+        node: bool = False,
     ) -> VideoInfo:
         if (info := self.info_cache.get(url)) is not None:
             return info
@@ -373,6 +374,8 @@ class Downloader:
             opts["cookiefile"] = str(cookiefile)
         if format:
             opts["format"] = format
+        if node:
+            opts["js_runtimes"] = {"node": {}}
         with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore
             raw = await to_thread(ydl.extract_info, url, download=False)
             if not raw:
@@ -389,6 +392,7 @@ class Downloader:
         headers: dict[str, str] | None = None,
         proxy: str | None = None,
         format: str | None = None,
+        node: bool = False,
     ) -> dict[str, Any]:
         opts = {
             "quiet": True,
@@ -401,6 +405,8 @@ class Downloader:
             opts["cookiefile"] = str(cookiefile)
         if format:
             opts["format"] = format
+        if node:
+            opts["js_runtimes"] = {"node": {}}
 
         with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore
             raw = await to_thread(ydl.extract_info, url, download=False)
@@ -418,9 +424,15 @@ class Downloader:
         proxy: str | None = None,
         format: str | None = None,
         node: bool = False,
+        download_ranges: str | None = None,
+        concurrent_fragments: int | None = None,
     ) -> Path:
         info = await self.ytdlp_extract_info(
-            url, cookiefile=cookiefile, headers=headers, proxy=proxy
+            url,
+            cookiefile=cookiefile,
+            headers=headers,
+            proxy=proxy,
+            node=node,
         )
         if info.duration > self.cfg.max_duration:
             raise DurationLimitException
@@ -446,6 +458,13 @@ class Downloader:
             opts["cookiefile"] = str(cookiefile)
         if node:
             opts["js_runtimes"] = {"node": {}}
+        if download_ranges:
+            opts["download_ranges"] = yt_dlp.utils.download_range_func(
+                None,
+                download_ranges,
+            )
+        if concurrent_fragments and concurrent_fragments > 1:
+            opts["concurrent_fragment_downloads"] = concurrent_fragments
 
         with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore
             await to_thread(ydl.download, [url])
@@ -506,6 +525,7 @@ class Downloader:
         headers: dict[str, str] | None = None,
         proxy: str | None = None,
         format: str | None = None,
+        node: bool = False,
     ) -> Path:
         file_name = generate_file_name(url)
         audio_path = self.cfg.cache_dir / f"{file_name}.flac"
@@ -529,6 +549,8 @@ class Downloader:
             opts["proxy"] = proxy
         if cookiefile and cookiefile.is_file():
             opts["cookiefile"] = str(cookiefile)
+        if node:
+            opts["js_runtimes"] = {"node": {}}
 
         with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore
             await to_thread(ydl.download, [url])

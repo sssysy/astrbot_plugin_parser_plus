@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "name": "youtube",
+  "display_name": "YouTube",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "hint": "YouTube 通常需要代理；代理地址沿用插件全局配置",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填，建议使用 Netscape cookies.txt；敏感字段不会回显",
+      "secret": true,
+      "default": ""
+    },
+    "media_mode": {
+      "type": "select",
+      "label": "媒体模式",
+      "hint": "video 发送视频；audio 仅发送音频；auto 在 YouTube Music 链接上发送音频，其余发送视频",
+      "options": [
+        "auto",
+        "video",
+        "audio"
+      ],
+      "default": "auto"
+    },
+    "video_quality": {
+      "type": "select",
+      "label": "视频画质上限",
+      "hint": "auto 为不限上限；720p 为推荐默认值",
+      "options": [
+        "auto",
+        "2160p",
+        "1440p",
+        "1080p",
+        "720p",
+        "480p",
+        "360p"
+      ],
+      "default": "720p"
+    },
+    "video_codec": {
+      "type": "select",
+      "label": "视频编码偏好",
+      "hint": "auto 优先较小体积；avc 兼容性最好；hevc/av1 体积更小但部分客户端可能无法播放",
+      "options": [
+        "auto",
+        "avc",
+        "hevc",
+        "av1"
+      ],
+      "default": "auto"
+    },
+    "clip_seconds": {
+      "type": "int",
+      "label": "超长视频截取时长",
+      "hint": "单位秒，0 表示不截取；视频超过该时长时只下载开头片段",
+      "default": 0
+    },
+    "include_channel_info": {
+      "type": "bool",
+      "label": "补全频道资料",
+      "hint": "额外请求频道页获取头像和简介；失败时自动降级，不影响视频解析",
+      "default": true
+    }
+  }
+}

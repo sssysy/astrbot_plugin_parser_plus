@@ -75,7 +75,8 @@ def parse_dynamic_time(value: Any) -> int | None:
     return None
 
 
-def is_allowed_media_host(url: str) -> bool:
+def is_bilibili_media_host(url: str) -> bool:
+    """B 站直连 CDN；不包含 PCDN 域名。"""
     host = (urlsplit(url).hostname or "").lower()
     return (
         host == "bilibili.com"
@@ -88,6 +89,24 @@ def is_allowed_media_host(url: str) -> bool:
         or host.endswith(".bilivideo.com")
         or host == "bilivideo.cn"
         or host.endswith(".bilivideo.cn")
+    )
+
+
+def is_allowed_media_host(url: str) -> bool:
+    """允许的媒体来源，包含 B 站偶发下发的 PCDN 域名。"""
+    if is_bilibili_media_host(url):
+        return True
+    host = (urlsplit(url).hostname or "").lower()
+    return any(
+        host == domain or host.endswith(f".{domain}")
+        for domain in (
+            "mcdn.bilivideo.com",
+            "mcdn.bilivideo.cn",
+            "szbdyd.com",
+            "mountaintoys.cn",
+            "nexusedgeio.com",
+            "ahdohpiechei.com",
+        )
     )
 
 

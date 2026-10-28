@@ -45,6 +45,7 @@ from .utils import (
     clean_cover,
     extract_rich_text,
     is_allowed_media_host,
+    is_bilibili_media_host,
     metric,
     normalize_url,
     parse_dynamic_time,
@@ -478,7 +479,11 @@ class BilibiliParser(BaseParser):
             candidates.extend(u for u in backup if isinstance(u, str) and u)
 
         allowed = [url for url in candidates if is_allowed_media_host(url)]
-        direct = [url for url in allowed if not self._is_pcdn_url(url)]
+        direct = [
+            url
+            for url in allowed
+            if is_bilibili_media_host(url) and not self._is_pcdn_url(url)
+        ]
         pcdn = [url for url in allowed if self._is_pcdn_url(url)]
         return direct + pcdn
 
@@ -497,7 +502,7 @@ class BilibiliParser(BaseParser):
             direct_urls = [
                 u
                 for u in urls
-                if is_allowed_media_host(u) and not self._is_pcdn_url(u)
+                if is_bilibili_media_host(u) and not self._is_pcdn_url(u)
             ]
             if direct_urls:
                 urls = direct_urls

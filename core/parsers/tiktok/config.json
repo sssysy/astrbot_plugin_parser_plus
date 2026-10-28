@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "name": "tiktok",
+  "display_name": "TikTok",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填，Netscape 或 Cookie 字符串格式",
+      "secret": true,
+      "default": ""
+    },
+    "video_quality": {
+      "type": "select",
+      "label": "视频画质偏好",
+      "hint": "auto 使用 yt-dlp 的自动选择；也可指定 1080p、720p、540p",
+      "options": [
+        "auto",
+        "1080p",
+        "720p",
+        "540p"
+      ],
+      "default": "auto"
+    }
+  }
+}

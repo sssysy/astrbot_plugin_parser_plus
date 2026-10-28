@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "kuaishou",
+  "display_name": "快手",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "max_comments": {
+      "type": "int",
+      "label": "最大评论数量",
+      "hint": "设为 0 时不请求评论",
+      "default": 5
+    }
+  }
+}

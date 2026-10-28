@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "name": "telegram",
+  "display_name": "Telegram",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "hint": "Telegram 公开网页在部分网络环境可能需要代理",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填，建议使用 Netscape cookies.txt；公开频道通常无需登录",
+      "secret": true,
+      "default": ""
+    },
+    "include_link_preview": {
+      "type": "bool",
+      "label": "显示链接预览",
+      "hint": "在卡片中展示 Telegram 生成的链接标题、站点和描述，并在没有媒体时用作封面",
+      "default": true
+    },
+    "include_poll": {
+      "type": "bool",
+      "label": "显示投票",
+      "hint": "在卡片中展示投票问题、选项和票数",
+      "default": true
+    },
+    "include_buttons": {
+      "type": "bool",
+      "label": "显示按钮",
+      "hint": "在卡片中展示帖子附带的 Inline 按钮和链接",
+      "default": true
+    },
+    "show_unsupported_media": {
+      "type": "bool",
+      "label": "提示网页不可用媒体",
+      "hint": "公开网页无法取得文件或受限媒体时，在卡片中说明原因",
+      "default": true
+    }
+  }
+}

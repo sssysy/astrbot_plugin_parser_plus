@@ -78,13 +78,13 @@
     return element;
   }
 
-  function showSnackbar(message) {
+  function showSnackbar(message, duration = 3200) {
     window.clearTimeout(snackbarTimer);
     refs.snackbarMessage.textContent = message;
     refs.snackbar.classList.add("is-visible");
     snackbarTimer = window.setTimeout(() => {
       refs.snackbar.classList.remove("is-visible");
-    }, 3200);
+    }, duration);
   }
 
   function createDraft(parser) {
@@ -791,10 +791,14 @@
       return;
     }
 
+    const hasToggle = dirty.some(
+      ({ parser, draft }) => Boolean(parser.enabled) !== Boolean(draft.enabled),
+    );
+
     state.saving = true;
     refreshGlobalSaveState();
     try {
-      await bridge.apiPost("parser-settings/parsers", {
+      const response = await bridge.apiPost("parser-settings/parsers", {
         parsers: payloads,
       });
       for (const { parser, draft } of dirty) {
@@ -815,7 +819,11 @@
       renderParserList();
       renderDetail();
       refreshGlobalSaveState();
-      showSnackbar(`${dirty.length} 个平台的配置已保存`);
+      if (hasToggle || response?.reload_required) {
+        showSnackbar(`${dirty.length} 个平台的配置已保存。已变更解析器启停状态，请重载插件以完全生效`, 4500);
+      } else {
+        showSnackbar(`${dirty.length} 个平台的配置已保存`);
+      }
     } catch (error) {
       state.saving = false;
       refreshGlobalSaveState();

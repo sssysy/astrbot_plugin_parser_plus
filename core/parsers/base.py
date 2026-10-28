@@ -87,7 +87,7 @@ class BaseParser:
         self.ios_headers = IOS_HEADER.copy()
         self.android_headers = ANDROID_HEADER.copy()
         self.cfg = config
-        self.mycfg = self._load_mycfg()
+        self._mycfg: Any = None
         self.data_dir = self.cfg.data_dir
         self.downloader = downloader
         self._session: ClientSession | None = None
@@ -99,6 +99,16 @@ class BaseParser:
                 f"解析器 {self.platform.name} 未注册或未生成运行时配置"
             )
         return parser_cfg
+
+    @property
+    def mycfg(self) -> ParserItem:
+        if getattr(self, "_mycfg", None) is not None:
+            return self._mycfg
+        return self._load_mycfg()
+
+    @mycfg.setter
+    def mycfg(self, value: Any) -> None:
+        self._mycfg = value
 
     @property
     def proxy(self) -> str | None:

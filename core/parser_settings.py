@@ -87,15 +87,18 @@ class ParserSettingsService:
                 }
             elif not cookies.strip():
                 self._bilibili_credential_path().unlink(missing_ok=True)
+        package = self.registry.snapshot.by_name.get(name)
+        was_enabled = package.settings.enabled if package else None
         settings = await self.registry.save(
             name,
             enabled=enabled,
             values=dict(updates),
             preserve_masked=preserve_masked,
         )
+        reload_required = was_enabled is not None and was_enabled != settings.enabled
         return {
             "saved": True,
-            "reload_required": False,
+            "reload_required": reload_required,
             "enabled": settings.enabled,
         }
 
@@ -225,10 +228,15 @@ class ParserSettingsService:
                 else (name, enabled, values)
                 for name, enabled, values in prepared
             ]
+        reload_required = any(
+            self.registry.snapshot.by_name.get(name) is not None
+            and self.registry.snapshot.by_name[name].settings.enabled != enabled
+            for name, enabled, _ in prepared
+        )
         await self.registry.save_many(prepared)
         return {
             "saved": True,
-            "reload_required": False,
+            "reload_required": reload_required,
             "count": len(prepared),
         }
 

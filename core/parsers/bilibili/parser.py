@@ -409,31 +409,48 @@ class BilibiliParser(BaseParser):
         }
         data: dict[str, Any] | None = None
         message = "获取视频播放流失败"
-        for api_url in (self.API_PLAYURL, self.API_PLAYURL_FALLBACK):
-            try:
-                payload = await self._get_json(
-                    api_url,
-                    params=params,
-                    error="获取视频播放流失败",
+        last_candidate: dict[str, Any] | None = None
+        base_headers = self._request_headers()
+        base_headers.pop("Cookie", None)
+        for use_auth in (True, False):
+            for api_url in (self.API_PLAYURL, self.API_PLAYURL_FALLBACK):
+                headers = (
+                    self._request_headers(api_url)
+                    if use_auth
+                    else dict(base_headers)
                 )
-            except ParseException:
-                continue
-            if payload.get("code") != 0:
-                message = str(payload.get("message") or message)
-                continue
-            candidate = payload.get("data")
-            if not isinstance(candidate, dict):
-                continue
-            if self._has_playable_stream(candidate):
-                data = candidate
+                try:
+                    payload = await self._get_json(
+                        api_url,
+                        params=params,
+                        headers=headers,
+                        error="获取视频播放流失败",
+                    )
+                except ParseException:
+                    continue
+                if payload.get("code") != 0:
+                    message = str(payload.get("message") or message)
+                    continue
+                candidate = payload.get("data")
+                if not isinstance(candidate, dict):
+                    continue
+                if self._has_playable_stream(candidate):
+                    data = candidate
+                    break
+                last_candidate = candidate
+            if data is not None:
                 break
-            data = candidate
+        if data is None:
+            data = last_candidate
         if data is None:
             raise ParseException(message)
         dash = data.get("dash")
+        raw_videos = dash.get("video") if isinstance(dash, dict) else None
+        raw_audios = dash.get("audio") if isinstance(dash, dict) else None
+        videos: list[dict[str, Any]] = []
         if isinstance(dash, dict):
-            videos = self._normalize_streams(dash.get("video"), kind="video")
-            audios = self._normalize_streams(dash.get("audio"), kind="audio")
+            videos = self._normalize_streams(raw_videos, kind="video")
+            audios = self._normalize_streams(raw_audios, kind="audio")
             if videos:
                 selected = videos[0]
                 selected_audio = audios[0] if audios else None
@@ -455,6 +472,13 @@ class BilibiliParser(BaseParser):
                     "resolution": "",
                     "duration": duration,
                 }
+        logger.warning(
+            "[哔哩哔哩] 视频流不可用 | "
+            f"bvid={bvid} | cid={cid} | qn={self.quality} | "
+            f"dash_video={len(raw_videos) if isinstance(raw_videos, list) else 0} | "
+            f"allowed_video={len(videos) if isinstance(dash, dict) else 0} | "
+            f"durl={len(durl) if isinstance(durl, list) else 0}"
+        )
         raise ParseException("未找到可用的视频流")
 
     @staticmethod

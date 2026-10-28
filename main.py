@@ -114,16 +114,20 @@ class ParserPlugin(Star):
         # 关缓存清理器
         await self.cleaner.stop()
 
-    async def _register_parser(self):
-        """扫描解析器目录并替换注册快照。"""
-        snapshot = await self.parser_registry.load()
+    def _sync_parser_snapshot(self):
+        """同步注册中心最新的解析器快照到插件运行时。"""
+        snapshot = self.parser_registry.snapshot
         self.parser_map = snapshot.parser_map
         self.key_pattern_list = list(snapshot.key_pattern_list)
-
         logger.debug(
-            f"[parser] 关键词-正则对已生成: "
+            f"[parser] 关键词-正则对已更新: "
             f"{[kw for kw, _ in self.key_pattern_list]}"
         )
+
+    async def _register_parser(self):
+        """扫描解析器目录并替换注册快照。"""
+        await self.parser_registry.load()
+        self._sync_parser_snapshot()
 
     @staticmethod
     def _is_page_admin() -> bool:
@@ -145,17 +149,18 @@ class ParserPlugin(Star):
         if not isinstance(enabled, bool) or not isinstance(values, dict):
             return error_response("invalid payload", status_code=400)
         try:
-            await self.parser_settings.save_parser(
+            result = await self.parser_settings.save_parser(
                 name,
                 enabled=enabled,
                 updates=values,
                 preserve_masked=False,
             )
+            self._sync_parser_snapshot()
         except KeyError:
             return error_response("parser not found", status_code=404)
         except ValueError as exc:
             return error_response(str(exc), status_code=400)
-        return json_response({"saved": True, "reload_required": False})
+        return json_response(result)
 
     async def page_save_parsers(self):
         if not self._is_page_admin():
@@ -166,6 +171,7 @@ class ParserPlugin(Star):
             return error_response("invalid payload", status_code=400)
         try:
             result = await self.parser_settings.save_parsers(updates)
+            self._sync_parser_snapshot()
         except KeyError:
             return error_response("parser not found", status_code=404)
         except OSError:

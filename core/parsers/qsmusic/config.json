@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "qsmusic",
+  "display_name": "汽水音乐",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    }
+  }
+}

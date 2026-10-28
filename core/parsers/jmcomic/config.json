@@ -41,6 +41,18 @@
       "label": "最大页数",
       "hint": "发送漫画时接受的最大页数，超过则跳过下载发送。0则不限制",
       "default": 50
+    },
+    "include_comments": {
+      "type": "bool",
+      "label": "卡片显示评论",
+      "hint": "获取当前章节第一页的评论及一级回复",
+      "default": true
+    },
+    "comment_limit": {
+      "type": "int",
+      "label": "评论数量",
+      "hint": "单个章节最多获取的根评论数量，范围 0-20",
+      "default": 5
     }
   }
 }

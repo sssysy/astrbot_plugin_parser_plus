@@ -30,6 +30,7 @@ from ...data import FileContent, ImageContent, MediaContent, Platform
 from ...download import Downloader
 from ...exception import ParseException
 from ..base import BaseParser, handle
+from .comment import comment_limit, decode_comments
 
 
 class JMComicParser(BaseParser):
@@ -147,6 +148,27 @@ class JMComicParser(BaseParser):
         await asyncio.to_thread(self._imgs_to_pdf, paths, pdf_path)
         return pdf_path
 
+    async def _fetch_comments(self, jm_client: Any, comic_id: str) -> list:
+        if not bool(getattr(self.mycfg, "include_comments", False)):
+            return []
+        limit = comment_limit(getattr(self.mycfg, "comment_limit", 0))
+        if limit <= 0:
+            return []
+        try:
+            page = await jm_client.album_pagination(
+                comic_id,
+                page=1,
+                need_total=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[JMComic] 获取评论失败 | "
+                f"comic_id={comic_id} | "
+                f"error_type={type(exc).__name__}"
+            )
+            return []
+        return decode_comments(page, limit=limit)
+
     @handle("18comic.vip/photo", r"18comic\.vip/photo/(?P<comic_id>\d{5,})")
     @handle("18comic.vip/album", r"18comic\.vip/album/(?P<comic_id>\d{5,})")
     @handle("jm", r"jm(?P<comic_id>\d+)")
@@ -192,6 +214,7 @@ class JMComicParser(BaseParser):
 
             photo_detail = await jm_client.get_photo_detail(comic_id)
             album_episode = photo_detail.sort
+            comments = await self._fetch_comments(jm_client, comic_id)
 
             final_contents: list[MediaContent] = []
             cover_task = None
@@ -252,6 +275,7 @@ class JMComicParser(BaseParser):
                 quality="漫画",
                 text=send_text,
                 extra={"info": extra_info},
+                comments=comments,
                 url=album_url,
             )
             return self.parse_result(final_contents)

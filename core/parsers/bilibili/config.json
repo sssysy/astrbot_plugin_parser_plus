@@ -48,6 +48,18 @@
       "type": "bool",
       "label": "卡片显示弹幕",
       "default": true
+    },
+    "include_comments": {
+      "type": "bool",
+      "label": "卡片显示评论",
+      "hint": "获取视频热门根评论、置顶评论及一级回复",
+      "default": false
+    },
+    "comment_limit": {
+      "type": "int",
+      "label": "评论数量",
+      "hint": "单个视频最多获取的根评论数量，范围 0-20；关闭评论时无需请求",
+      "default": 5
     }
   }
 }

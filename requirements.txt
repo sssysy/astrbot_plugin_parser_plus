@@ -8,5 +8,5 @@ yt-dlp[default]>=2025.12.8
 gallery-dl>=1.31.2
 json5>=0.9,<1.0
 imageio-ffmpeg>=0.5.1,<1.0.0
-jmcomic>=2.7.5
+jmcomic>=2.7.10,<2.8.0
 protobuf>=7.34.2,<8.0.0

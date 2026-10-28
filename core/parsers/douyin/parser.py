@@ -9,10 +9,10 @@ from astrbot.api import logger
 
 from ...config import PluginConfig
 from ...cookie import CookieJar
-from ...data import Author, MediaContent, Metric
+from ...data import Author, Comment as CardComment, MediaContent, Metric
 from ...utils import format_num
 from ..base import BaseParser, Downloader, ParseException, Platform, handle
-from .comment import Comment, decode_comments
+from .comment import Comment, comment_limit, decode_comments
 from .live import Room
 from .video import Aweme, SelectedVideo, decode_aweme, select_video
 
@@ -331,13 +331,14 @@ class DouyinParser(BaseParser):
         aweme_id: str,
         limit: int = 5,
         cursor: int = 0,
-    ) -> list[Comment]:
-        """评论接口预留：主解析不调用，后续评论卡片直接复用。"""
+    ) -> list[CardComment]:
+        """获取热评；评论失败只影响卡片，不阻断作品解析。"""
         if limit <= 0:
             return []
-        await self.ensure_ttwid()
         headers = self.media_headers
         try:
+            await self.ensure_ttwid()
+            headers["Referer"] = f"https://www.douyin.com/aweme/{aweme_id}"
             async with self.session.get(
                 self.COMMENT_URL,
                 params={
@@ -355,12 +356,28 @@ class DouyinParser(BaseParser):
                 if resp.status >= 400:
                     raise ParseException(f"抖音评论接口状态码 {resp.status}")
                 payload = await resp.read()
-        except (ClientError, TimeoutError) as exc:
-            raise ParseException("抖音评论接口请求失败") from exc
+        except (ClientError, TimeoutError, ParseException) as exc:
+            logger.warning(
+                "[抖音] 评论获取失败 | "
+                f"aweme_id={aweme_id} | error_type={type(exc).__name__}"
+            )
+            return []
         try:
-            return decode_comments(payload)
-        except (msgspec.ValidationError, ValueError) as exc:
-            raise ParseException("抖音评论接口返回数据异常") from exc
+            return decode_comments(
+                payload,
+                limit=limit,
+                avatar_factory=lambda url: self.downloader.download_img(
+                    url,
+                    headers=self.media_headers,
+                    proxy=self.proxy,
+                ),
+            )
+        except (msgspec.ValidationError, ValueError):
+            logger.warning(
+                "[抖音] 评论数据异常 | "
+                f"aweme_id={aweme_id} | error_type=validation"
+            )
+            return []
 
     async def parse_aweme(self, aweme: Aweme):
         selected = (
@@ -372,6 +389,7 @@ class DouyinParser(BaseParser):
         )
         contents = await self.build_contents(aweme, selected)
         author = self.build_author(aweme)
+        comments = await self._comments_for(aweme)
         if aweme.is_article:
             article = aweme.article_info
             await self.send_desc_common(
@@ -382,6 +400,7 @@ class DouyinParser(BaseParser):
                 timestamp=aweme.create_time,
                 url=aweme.short_url,
                 metrics=aweme.metrics,
+                comments=comments,
             )
         elif aweme.images:
             await self.send_desc_common(
@@ -393,6 +412,7 @@ class DouyinParser(BaseParser):
                 timestamp=aweme.create_time,
                 url=aweme.short_url,
                 metrics=aweme.metrics,
+                comments=comments,
             )
         elif aweme.is_video and selected is not None and aweme.video is not None:
             await self.send_desc_video(
@@ -406,6 +426,7 @@ class DouyinParser(BaseParser):
                 timestamp=aweme.create_time,
                 url=aweme.short_url,
                 metrics=aweme.metrics,
+                comments=comments,
                 headers=self.media_headers,
             )
         else:
@@ -418,8 +439,17 @@ class DouyinParser(BaseParser):
                 timestamp=aweme.create_time,
                 url=aweme.short_url,
                 metrics=aweme.metrics,
+                comments=comments,
             )
         return self.parse_result(contents)
+
+    async def _comments_for(self, aweme: Aweme) -> list[CardComment]:
+        if not bool(getattr(self.mycfg, "include_comments", False)):
+            return []
+        limit = comment_limit(getattr(self.mycfg, "comment_limit", 0))
+        if limit <= 0 or not aweme.aweme_id:
+            return []
+        return await self.fetch_comments(aweme.aweme_id, limit=limit)
 
     def build_author(self, aweme: Aweme) -> Author:
         return self.create_author(

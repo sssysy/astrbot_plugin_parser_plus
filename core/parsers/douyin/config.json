@@ -27,6 +27,18 @@
         "540p"
       ],
       "default": "auto"
+    },
+    "include_comments": {
+      "type": "bool",
+      "label": "卡片显示评论",
+      "hint": "获取热门根评论、评论图片和表情",
+      "default": false
+    },
+    "comment_limit": {
+      "type": "int",
+      "label": "评论数量",
+      "hint": "单个作品最多获取的根评论数量，范围 0-20；关闭评论时无需请求",
+      "default": 5
     }
   }
 }

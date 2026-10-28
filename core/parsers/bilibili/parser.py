@@ -14,7 +14,7 @@ from astrbot.api import logger
 
 from ...config import PluginConfig
 from ...cookie import CookieJar
-from ...data import Author, MediaContent, Metric
+from ...data import Author, Comment, MediaContent, Metric
 from ...download import Downloader
 from ...exception import ParseException
 from ..base import BaseParser, Platform, handle
@@ -28,6 +28,7 @@ from .auth import (
     refresh_credential,
     save_credential,
 )
+from .comment import comment_limit, decode_comments as decode_card_comments
 from .models import (
     BiliDynamicAuthor,
     BiliDynamicContent,
@@ -79,6 +80,12 @@ class BilibiliParser(BaseParser):
     API_BANGUMI: ClassVar[str] = "https://api.bilibili.com/pgc/view/web/season"
     API_LIVE: ClassVar[str] = "https://api.live.bilibili.com/room/v1/Room/get_info"
     API_USER: ClassVar[str] = "https://api.bilibili.com/x/web-interface/card"
+    API_COMMENTS: ClassVar[str] = (
+        "https://api.bilibili.com/x/v2/reply/main"
+    )
+    API_COMMENTS_FALLBACK: ClassVar[str] = (
+        "https://api.bilibili.com/x/v2/reply"
+    )
     API_DYNAMIC: ClassVar[str] = (
         "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail"
     )
@@ -366,6 +373,7 @@ class BilibiliParser(BaseParser):
             danmaku = await self._fetch_hot_danmaku(cid)
             if danmaku:
                 extra["info"] = "热门弹幕 · " + "  ".join(danmaku)
+        comments = await self._fetch_comments(info.aid)
         await self.send_desc_video(
             page_title,
             author,
@@ -378,6 +386,7 @@ class BilibiliParser(BaseParser):
             url=url,
             extra=extra or None,
             metrics=metrics,
+            comments=comments,
             headers=self.media_headers,
         )
         content = self._build_video_content(
@@ -387,6 +396,68 @@ class BilibiliParser(BaseParser):
             pages_duration,
         )
         return self.parse_result([content])
+
+    async def _fetch_comments(self, aid: int) -> list[Comment]:
+        if not bool(getattr(self.mycfg, "include_comments", False)):
+            return []
+        limit = comment_limit(getattr(self.mycfg, "comment_limit", 0))
+        if limit <= 0 or aid <= 0:
+            return []
+
+        payload = await self._get_comment_payload(
+            self.API_COMMENTS,
+            params={"type": 1, "oid": aid, "mode": 3, "next": 0},
+            error="获取哔哩哔哩热评失败",
+        )
+        if payload is None:
+            payload = await self._get_comment_payload(
+                self.API_COMMENTS_FALLBACK,
+                params={"type": 1, "oid": aid, "pn": 1, "sort": 2, "ps": limit},
+                error="获取哔哩哔哩评论失败",
+            )
+        if payload is None:
+            return []
+        try:
+            return decode_card_comments(
+                payload,
+                limit=limit,
+                avatar_factory=lambda url: self.downloader.download_img(
+                    url,
+                    headers=self.media_headers,
+                    proxy=self.proxy,
+                ),
+            )
+        except (msgspec.ValidationError, ValueError):
+            logger.warning(
+                "[哔哩哔哩] 评论数据异常 | "
+                f"aid={aid} | error_type=validation"
+            )
+            return []
+
+    async def _get_comment_payload(
+        self,
+        url: str,
+        *,
+        params: dict[str, Any],
+        error: str,
+    ) -> dict[str, Any] | None:
+        try:
+            payload = await self._get_json(
+                url,
+                params=params,
+                headers=self._request_headers(url),
+                error=error,
+            )
+        except ParseException:
+            return None
+        if payload.get("code") != 0:
+            logger.warning(
+                "[哔哩哔哩] 评论接口返回错误 | "
+                f"code={payload.get('code')} | endpoint={urlparse(url).path}"
+            )
+            return None
+        data = payload.get("data")
+        return payload if isinstance(data, dict) else None
 
     async def _fetch_stream(
         self,

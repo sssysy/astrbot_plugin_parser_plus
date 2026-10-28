@@ -69,6 +69,9 @@ class BilibiliParser(BaseParser):
     API_PLAYURL: ClassVar[str] = (
         "https://api.bilibili.com/x/player/wbi/playurl"
     )
+    API_PLAYURL_FALLBACK: ClassVar[str] = (
+        "https://api.bilibili.com/x/player/playurl"
+    )
     API_FAVORITE: ClassVar[str] = (
         "https://api.bilibili.com/x/v3/fav/resource/list"
     )
@@ -394,24 +397,38 @@ class BilibiliParser(BaseParser):
     ) -> dict[str, Any]:
         if not cid:
             raise ParseException("视频分集信息缺失")
-        payload = await self._get_json(
-            self.API_PLAYURL,
-            params={
-                "bvid": bvid,
-                "avid": aid or bv2av(bvid),
-                "cid": cid,
-                "qn": self.quality,
-                "fnver": 0,
-                "fnval": 4048,
-                "fourk": 1,
-            },
-            error="获取视频播放流失败",
-        )
-        if payload.get("code") != 0:
-            raise ParseException(str(payload.get("message") or "获取视频播放流失败"))
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            raise ParseException("视频播放流为空")
+        params = {
+            "bvid": bvid,
+            "avid": aid or bv2av(bvid),
+            "cid": cid,
+            "qn": self.quality,
+            "fnver": 0,
+            "fnval": 4048,
+            "fourk": 1,
+        }
+        data: dict[str, Any] | None = None
+        message = "获取视频播放流失败"
+        for api_url in (self.API_PLAYURL, self.API_PLAYURL_FALLBACK):
+            try:
+                payload = await self._get_json(
+                    api_url,
+                    params=params,
+                    error="获取视频播放流失败",
+                )
+            except ParseException:
+                continue
+            if payload.get("code") != 0:
+                message = str(payload.get("message") or message)
+                continue
+            candidate = payload.get("data")
+            if not isinstance(candidate, dict):
+                continue
+            if self._has_playable_stream(candidate):
+                data = candidate
+                break
+            data = candidate
+        if data is None:
+            raise ParseException(message)
         dash = data.get("dash")
         if isinstance(dash, dict):
             videos = self._normalize_streams(dash.get("video"), kind="video")
@@ -428,11 +445,7 @@ class BilibiliParser(BaseParser):
                 }
         durl = data.get("durl")
         if isinstance(durl, list):
-            urls = [
-                item["url"]
-                for item in durl
-                if isinstance(item, dict) and isinstance(item.get("url"), str)
-            ]
+            urls = self._normalize_durl(durl)
             if urls:
                 return {
                     "video": urls,
@@ -442,6 +455,32 @@ class BilibiliParser(BaseParser):
                     "duration": duration,
                 }
         raise ParseException("未找到可用的视频流")
+
+    @staticmethod
+    def _has_playable_stream(data: dict[str, Any]) -> bool:
+        dash = data.get("dash")
+        if isinstance(dash, dict) and dash.get("video"):
+            return True
+        durl = data.get("durl")
+        return isinstance(durl, list) and bool(durl)
+
+    def _normalize_durl(self, durl: list[Any]) -> list[str]:
+        candidates: list[str] = []
+        for item in durl:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if isinstance(url, str) and url:
+                candidates.append(url)
+            backup = item.get("backup_url") or item.get("backupUrl") or []
+            if not isinstance(backup, list):
+                backup = [backup]
+            candidates.extend(u for u in backup if isinstance(u, str) and u)
+
+        allowed = [url for url in candidates if is_allowed_media_host(url)]
+        direct = [url for url in allowed if not self._is_pcdn_url(url)]
+        pcdn = [url for url in allowed if self._is_pcdn_url(url)]
+        return direct + pcdn
 
     def _normalize_streams(self, streams: Any, *, kind: str) -> list[dict[str, Any]]:
         if not isinstance(streams, list):

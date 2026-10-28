@@ -668,11 +668,65 @@ class Renderer:
                     );
                 }"""
             )
+            clip = await page.evaluate(
+                """() => {
+                    const card = document.querySelector("main");
+                    if (!card) return null;
+                    const rect = card.getBoundingClientRect();
+                    return {
+                        x: rect.left + window.scrollX,
+                        y: rect.top + window.scrollY,
+                        width: rect.width,
+                        height: rect.height,
+                    };
+                }"""
+            )
+            if (
+                not isinstance(clip, dict)
+                or float(clip.get("width", 0)) <= 0
+                or float(clip.get("height", 0)) <= 0
+            ):
+                raise RuntimeError("未找到可截图的卡片元素")
+            card_size = {
+                "width": max(1, round(float(clip["width"]))),
+                "height": max(1, round(float(clip["height"]))),
+            }
+            if page.viewport_size != card_size:
+                await page.set_viewport_size(card_size)
+                await page.evaluate(
+                    """async () => {
+                        await document.fonts.ready;
+                        await Promise.all(
+                            Array.from(document.images, (img) =>
+                                img.decode().catch(() => undefined)
+                            )
+                        );
+                    }"""
+                )
+            clip = await page.evaluate(
+                """() => {
+                    const card = document.querySelector("main");
+                    if (!card) return null;
+                    const rect = card.getBoundingClientRect();
+                    return {
+                        x: rect.left + window.scrollX,
+                        y: rect.top + window.scrollY,
+                        width: rect.width,
+                        height: rect.height,
+                    };
+                }"""
+            )
+            if (
+                not isinstance(clip, dict)
+                or float(clip.get("width", 0)) <= 0
+                or float(clip.get("height", 0)) <= 0
+            ):
+                raise RuntimeError("未找到可截图的卡片元素")
             await page.screenshot(
                 path=str(output),
                 type="jpeg",
                 quality=self.JPEG_QUALITY,
-                full_page=True,
+                clip=clip,
                 animations="disabled",
                 caret="hide",
                 scale="css",

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "name": "tieba",
+  "display_name": "百度贴吧",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "include_comments": {
+      "type": "bool",
+      "label": "卡片显示评论",
+      "hint": "获取楼层及前 3 条楼中楼回复",
+      "default": true
+    },
+    "comment_limit": {
+      "type": "int",
+      "label": "评论楼层数量",
+      "hint": "最多展示的根楼层数量，范围 0-20",
+      "default": 5
+    }
+  }
+}

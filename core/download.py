@@ -1,8 +1,19 @@
-from asyncio import Task, TimeoutError, create_task, gather, sleep, to_thread
+from asyncio import (
+    Task,
+    TimeoutError,
+    create_subprocess_exec,
+    create_task,
+    gather,
+    sleep,
+    to_thread,
+    wait_for,
+)
 from collections.abc import Callable, Collection, Coroutine, Sequence
 from functools import wraps
 from pathlib import Path
+from subprocess import DEVNULL, PIPE
 from typing import Any, ParamSpec, TypeVar
+from uuid import uuid4
 
 import aiofiles
 import yt_dlp
@@ -21,6 +32,7 @@ from .exception import (
     SizeLimitException,
     ZeroSizeException,
 )
+from .ffmpeg import FFmpegUnavailable, get_ffmpeg_path
 from .utils import LimitedSizeDict, generate_file_name, merge_av, safe_unlink
 
 P = ParamSpec("P")
@@ -81,7 +93,7 @@ class Downloader:
             )
         return self._client
 
-    async def close(self):
+    async def close(self) -> None:
         """关闭网络客户端"""
         if self._client is not None and not self._client.closed:
             await self._client.close()
@@ -351,6 +363,149 @@ class Downloader:
         await merge_av(v_path=v_path, a_path=a_path, output_path=output_path)
         return output_path
 
+    @auto_task
+    async def download_m3u8_video(
+        self,
+        url: str,
+        *,
+        video_name: str | None = None,
+        headers: dict[str, str] | None = None,
+        proxy: str | None = None,
+        fallback_urls: Sequence[str] | None = None,
+    ) -> Task[Path]:
+        """通过 ffmpeg 下载 HLS 并封装为 MP4。
+
+        ffmpeg 负责处理主播放列表、初始化段、加密分片和字节范围等 HLS
+        语义，避免在解析器中手写易失效的分片拼接逻辑。
+        """
+        headers = headers or self.default_headers
+        candidates = [item for item in (url, *(fallback_urls or ())) if item]
+        if not candidates:
+            raise DownloadException("HLS 地址为空")
+        if video_name is None:
+            video_name = generate_file_name(candidates[0], ".mp4")
+        file_path = self.cfg.cache_dir / video_name
+        if file_path.exists():
+            return file_path
+        if active := self._active_downloads.get(file_path):
+            return await active
+        task = create_task(
+            self._download_m3u8_candidates(
+                candidates,
+                file_path=file_path,
+                headers=headers,
+                proxy=proxy,
+            )
+        )
+        self._active_downloads[file_path] = task
+        try:
+            return await task
+        finally:
+            self._active_downloads.pop(file_path, None)
+
+    async def _download_m3u8_candidates(
+        self,
+        candidates: list[str],
+        *,
+        file_path: Path,
+        headers: dict[str, str],
+        proxy: str | None,
+    ) -> Path:
+        try:
+            ffmpeg = get_ffmpeg_path()
+        except FFmpegUnavailable as exc:
+            raise DownloadException("未找到 ffmpeg，无法下载 HLS 视频") from exc
+
+        temp_path = file_path.with_name(
+            f".{file_path.stem}.{uuid4().hex}.tmp.mp4"
+        )
+        retries = self.cfg.download_retry_times
+        last_error: Exception | None = None
+        try:
+            for attempt in range(retries + 1):
+                current_url = candidates[attempt % len(candidates)]
+                await safe_unlink(temp_path)
+                try:
+                    await self._run_hls_ffmpeg(
+                        ffmpeg,
+                        current_url,
+                        temp_path,
+                        headers=headers,
+                        proxy=proxy,
+                    )
+                    if not temp_path.exists() or temp_path.stat().st_size == 0:
+                        raise ZeroSizeException
+                    if temp_path.stat().st_size > self.max_size * 1024 * 1024:
+                        raise SizeLimitException
+                    await to_thread(temp_path.replace, file_path)
+                    return file_path
+                except (ZeroSizeException, SizeLimitException):
+                    raise
+                except (TimeoutError, OSError, RuntimeError) as exc:
+                    last_error = exc
+                    if attempt < retries:
+                        await sleep(1 + attempt)
+                        continue
+                    logger.warning(
+                        "[HLS] 下载失败 | "
+                        f"url={current_url} | error_type={type(exc).__name__}"
+                    )
+                    raise DownloadException("HLS 视频下载失败") from exc
+        finally:
+            await safe_unlink(temp_path)
+
+        raise DownloadException("HLS 视频下载失败") from last_error
+
+    async def _run_hls_ffmpeg(
+        self,
+        ffmpeg: str,
+        url: str,
+        output_path: Path,
+        *,
+        headers: dict[str, str],
+        proxy: str | None,
+    ) -> None:
+        header_text = "\r\n".join(f"{key}: {value}" for key, value in headers.items())
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-headers",
+            f"{header_text}\r\n",
+        ]
+        if proxy:
+            cmd.extend(("-http_proxy", proxy))
+        cmd.extend(
+            (
+                "-i",
+                url,
+                "-c",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            )
+        )
+        process = await create_subprocess_exec(
+            *cmd,
+            stdout=DEVNULL,
+            stderr=PIPE,
+        )
+        try:
+            _, stderr = await wait_for(
+                process.communicate(),
+                timeout=self.cfg.download_timeout,
+            )
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            raise
+        if process.returncode:
+            detail = stderr.decode(errors="ignore").strip()
+            raise RuntimeError(detail[:300] or "ffmpeg 执行失败")
+
     async def ytdlp_extract_info(
         self,
         url: str,
@@ -393,6 +548,7 @@ class Downloader:
         proxy: str | None = None,
         format: str | None = None,
         node: bool = False,
+        ignore_no_formats_error: bool = False,
     ) -> dict[str, Any]:
         opts = {
             "quiet": True,
@@ -407,6 +563,8 @@ class Downloader:
             opts["format"] = format
         if node:
             opts["js_runtimes"] = {"node": {}}
+        if ignore_no_formats_error:
+            opts["ignore_no_formats_error"] = True
 
         with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore
             raw = await to_thread(ydl.extract_info, url, download=False)

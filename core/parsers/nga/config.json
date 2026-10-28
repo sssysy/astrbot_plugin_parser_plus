@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "name": "nga",
+  "display_name": "NGA",
+  "default_enabled": false,
+  "fields": {
+    "use_proxy": {
+      "type": "bool",
+      "label": "使用代理",
+      "default": false
+    },
+    "cookies": {
+      "type": "text",
+      "label": "Cookies",
+      "hint": "选填；建议填写包含 guestJs、ngaPassportUid 的完整网页 Cookie",
+      "secret": true,
+      "default": ""
+    },
+    "show_body_text": {
+      "type": "bool",
+      "label": "发送正文文字",
+      "hint": "关闭时正文文字只显示在描述卡片中",
+      "default": true
+    },
+    "mixed_layout": {
+      "type": "bool",
+      "label": "图文混排",
+      "hint": "按正文顺序交错发送文字和图片；关闭时先发图片后发文字",
+      "default": true
+    },
+    "include_floor": {
+      "type": "bool",
+      "label": "解析指定楼层",
+      "hint": "链接带 pid 时，优先解析该楼层",
+      "default": true
+    }
+  }
+}
